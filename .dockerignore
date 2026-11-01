@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+.git
+.github
+.idea
+.vscode
+vendor
+bootstrap/cache/*.php
+node_modules
+frontend/node_modules
+frontend/.next
+storage/logs/*.log
+tests
+database/*.sqlite
