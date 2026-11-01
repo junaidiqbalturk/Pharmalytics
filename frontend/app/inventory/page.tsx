@@ -61,6 +61,7 @@ export default function InventoryPage() {
   const [activeTab, setActiveTab] = useState<string | null>('batches');
   const [batchSearch, setBatchSearch] = useState('');
   const [debouncedBatchSearch] = useDebouncedValue(batchSearch, 300);
+  const [batchFilter, setBatchFilter] = useState<string>('all');
   const [movementType, setMovementType] = useState<string>('all');
 
   // Modals
@@ -96,6 +97,16 @@ export default function InventoryPage() {
   const batches = batchesData?.data || [];
   const movements = movementsData?.data || [];
   const adjustments = adjustmentsData?.data || [];
+
+  const filteredBatches = batches.filter((b) => {
+    if (batchFilter === 'in_stock') return Number(b.quantity) > 0;
+    if (batchFilter === 'expired') return new Date(b.expiry_date).getTime() <= Date.now();
+    if (batchFilter === 'expiring_soon') {
+      const diff = Math.ceil((new Date(b.expiry_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+      return diff > 0 && diff <= 90;
+    }
+    return true;
+  });
 
   // Batch Form State
   const [batchForm, setBatchForm] = useState({
@@ -473,13 +484,26 @@ export default function InventoryPage() {
           <Tabs.Panel value="batches">
             <Paper p="md" radius="md" style={{ border: '1px solid #e2e8f0', background: '#ffffff' }}>
               <Group justify="space-between" mb="md">
-                <TextInput
-                  placeholder="Search batch number or medicine..."
-                  leftSection={<IconSearch size={16} />}
-                  value={batchSearch}
-                  onChange={(e) => setBatchSearch(e.currentTarget.value)}
-                  style={{ width: 320 }}
-                />
+                <Group gap="sm">
+                  <TextInput
+                    placeholder="Search batch number or medicine..."
+                    leftSection={<IconSearch size={16} />}
+                    value={batchSearch}
+                    onChange={(e) => setBatchSearch(e.currentTarget.value)}
+                    style={{ width: 280 }}
+                  />
+                  <Select
+                    value={batchFilter}
+                    onChange={(val) => setBatchFilter(val || 'all')}
+                    data={[
+                      { value: 'all', label: 'All Batches' },
+                      { value: 'in_stock', label: 'In Stock (>0)' },
+                      { value: 'expiring_soon', label: 'Expiring Soon (90d)' },
+                      { value: 'expired', label: 'Expired Batches' },
+                    ]}
+                    style={{ width: 190 }}
+                  />
+                </Group>
                 <Text size="xs" c="dimmed">
                   Sorted by earliest expiry date (FEFO rule)
                 </Text>
@@ -489,9 +513,9 @@ export default function InventoryPage() {
                 <Text p="xl" ta="center" c="dimmed">
                   Loading inventory batches...
                 </Text>
-              ) : batches.length === 0 ? (
-                <Alert color="teal" variant="light" title="No batches registered">
-                  Register your first batch or receive a purchase order in Procurement to automatically create batches.
+              ) : filteredBatches.length === 0 ? (
+                <Alert color="teal" variant="light" title="No batches found">
+                  No batches match your search or filter criteria. Register a batch or adjust filters.
                 </Alert>
               ) : (
                 <Table highlightOnHover verticalSpacing="sm">
@@ -509,7 +533,7 @@ export default function InventoryPage() {
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
-                    {batches.map((batch) => {
+                    {filteredBatches.map((batch) => {
                       const expInfo = getExpiryStatus(batch.expiry_date);
                       return (
                         <Table.Tr key={batch.id}>

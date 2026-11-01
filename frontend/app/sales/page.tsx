@@ -12,6 +12,7 @@ import {
   Divider,
   Grid,
   Group,
+  Kbd,
   Modal,
   NumberInput,
   Paper,
@@ -32,6 +33,7 @@ import {
   IconCheck,
   IconClock,
   IconCut,
+  IconKeyboard,
   IconLayoutGrid,
   IconList,
   IconMinus,
@@ -92,7 +94,9 @@ export default function SalesPosPage() {
   // Success Modal & Receipt Modal states
   const [successModalOpened, { open: openSuccessModal, close: closeSuccessModal }] = useDisclosure(false);
   const [receiptModalOpened, { open: openReceipt, close: closeReceipt }] = useDisclosure(false);
+  const [shortcutsModalOpened, { open: openShortcutsModal, close: closeShortcutsModal }] = useDisclosure(false);
   const [completedSale, setCompletedSale] = useState<SaleRecord | null>(null);
+  const tenderInputRef = useRef<HTMLInputElement>(null);
 
   // Queries
   const { data: productsData, isPending: productsLoading, error: productsError, refetch: refetchProducts } = useQuery({
@@ -236,17 +240,6 @@ export default function SalesPosPage() {
     }, 100);
   };
 
-  // Keyboard shortcut: ESC to dismiss modal and start new sale
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && successModalOpened) {
-        startNewSale();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [successModalOpened]);
-
   // Checkout mutation
   const checkoutMutation = useMutation({
     mutationFn: () => {
@@ -280,6 +273,43 @@ export default function SalesPosPage() {
       });
     },
   });
+
+  // Global POS Keyboard Shortcuts (Zero-Mouse Mode)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F1') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      } else if (e.key === 'F2') {
+        e.preventDefault();
+        tenderInputRef.current?.focus();
+        tenderInputRef.current?.select();
+      } else if (e.key === 'F3') {
+        e.preventDefault();
+        setViewMode((prev) => (prev === 'dense' ? 'grid' : 'dense'));
+      } else if (e.key === 'F4') {
+        e.preventDefault();
+        if (cart.length > 0 && !checkoutMutation.isPending) {
+          checkoutMutation.mutate();
+        }
+      } else if (e.key === 'F9') {
+        e.preventDefault();
+        clearCart();
+      } else if (e.key === 'F12' || (e.key === '?' && !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName))) {
+        e.preventDefault();
+        openShortcutsModal();
+      } else if (e.key === 'Escape') {
+        if (shortcutsModalOpened) {
+          closeShortcutsModal();
+        } else if (successModalOpened) {
+          startNewSale();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [cart, checkoutMutation, shortcutsModalOpened, successModalOpened]);
 
   return (
     <AppShell>
@@ -315,6 +345,15 @@ export default function SalesPosPage() {
                 Exit to Dashboard
               </Button>
             )}
+            <Button
+              variant="light"
+              color="teal"
+              size="xs"
+              leftSection={<IconKeyboard size={14} />}
+              onClick={openShortcutsModal}
+            >
+              Shortcuts (F12)
+            </Button>
             <SegmentedControl
               value={viewMode}
               onChange={(val) => setViewMode(val as 'grid' | 'dense')}
@@ -360,6 +399,25 @@ export default function SalesPosPage() {
                     leftSection={<IconSearch size={20} color="#0d9488" />}
                     value={search}
                     onChange={(e) => setSearch(e.currentTarget.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (products.length === 1) {
+                          addToCart(products[0], 'strip', 1);
+                          setSearch('');
+                        } else if (products.length > 1) {
+                          const exactMatch = products.find(
+                            (p) =>
+                              (p.barcode && p.barcode.toLowerCase() === search.trim().toLowerCase()) ||
+                              p.sku.toLowerCase() === search.trim().toLowerCase()
+                          );
+                          if (exactMatch) {
+                            addToCart(exactMatch, 'strip', 1);
+                            setSearch('');
+                          }
+                        }
+                      }
+                    }}
                     size="md"
                     style={{ flex: 1 }}
                     styles={{
@@ -1009,8 +1067,9 @@ export default function SalesPosPage() {
                       <Grid gutter={6}>
                         <Grid.Col span={6}>
                           <NumberInput
+                            ref={tenderInputRef}
                             size="xs"
-                            label="Cash Tendered"
+                            label="Cash Tendered (F2)"
                             prefix={`${currency} `}
                             placeholder={totalPayable.toFixed(2)}
                             min={0}
@@ -1462,6 +1521,124 @@ export default function SalesPosPage() {
               </Group>
             </Stack>
           )}
+        </Modal>
+
+        {/* MODAL: KEYBOARD SHORTCUTS OVERLAY (Zero-Mouse Mode) */}
+        <Modal
+          opened={shortcutsModalOpened}
+          onClose={closeShortcutsModal}
+          title={
+            <Group gap="xs">
+              <IconKeyboard size={20} color="#0d9488" />
+              <Text fw={750}>POS Zero-Mouse Keyboard Shortcuts</Text>
+            </Group>
+          }
+          size="md"
+          centered
+        >
+          <Stack gap="sm">
+            <Text size="xs" c="dimmed">
+              Designed for high-speed pharmacy rush hours. Cashiers and pharmacists can complete full checkout cycles
+              without touching the mouse.
+            </Text>
+
+            <Paper p="sm" radius="md" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+              <Grid align="center" gutter="xs">
+                <Grid.Col span={4}>
+                  <Kbd size="md">F1</Kbd>
+                </Grid.Col>
+                <Grid.Col span={8}>
+                  <Text size="xs" fw={600}>
+                    Focus Medicine Search / Barcode Input
+                  </Text>
+                </Grid.Col>
+              </Grid>
+            </Paper>
+
+            <Paper p="sm" radius="md" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+              <Grid align="center" gutter="xs">
+                <Grid.Col span={4}>
+                  <Kbd size="md">Enter</Kbd>
+                </Grid.Col>
+                <Grid.Col span={8}>
+                  <Text size="xs" fw={600}>
+                    Instant Add from Barcode Scanner to Cart
+                  </Text>
+                </Grid.Col>
+              </Grid>
+            </Paper>
+
+            <Paper p="sm" radius="md" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+              <Grid align="center" gutter="xs">
+                <Grid.Col span={4}>
+                  <Kbd size="md">F2</Kbd>
+                </Grid.Col>
+                <Grid.Col span={8}>
+                  <Text size="xs" fw={600}>
+                    Jump to Cash Tendered Input
+                  </Text>
+                </Grid.Col>
+              </Grid>
+            </Paper>
+
+            <Paper p="sm" radius="md" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+              <Grid align="center" gutter="xs">
+                <Grid.Col span={4}>
+                  <Kbd size="md">F3</Kbd>
+                </Grid.Col>
+                <Grid.Col span={8}>
+                  <Text size="xs" fw={600}>
+                    Toggle View (Dense Table vs Card Grid)
+                  </Text>
+                </Grid.Col>
+              </Grid>
+            </Paper>
+
+            <Paper p="sm" radius="md" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+              <Grid align="center" gutter="xs">
+                <Grid.Col span={4}>
+                  <Kbd size="md">F4</Kbd>
+                </Grid.Col>
+                <Grid.Col span={8}>
+                  <Text size="xs" fw={700} c="teal.8">
+                    Instant Complete Checkout & Bill
+                  </Text>
+                </Grid.Col>
+              </Grid>
+            </Paper>
+
+            <Paper p="sm" radius="md" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+              <Grid align="center" gutter="xs">
+                <Grid.Col span={4}>
+                  <Kbd size="md">F9</Kbd>
+                </Grid.Col>
+                <Grid.Col span={8}>
+                  <Text size="xs" fw={600}>
+                    Clear Current Cart / Cancel Order
+                  </Text>
+                </Grid.Col>
+              </Grid>
+            </Paper>
+
+            <Paper p="sm" radius="md" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+              <Grid align="center" gutter="xs">
+                <Grid.Col span={4}>
+                  <Kbd size="md">Esc</Kbd>
+                </Grid.Col>
+                <Grid.Col span={8}>
+                  <Text size="xs" fw={600}>
+                    Dismiss Dialogs / Start New Customer Sale
+                  </Text>
+                </Grid.Col>
+              </Grid>
+            </Paper>
+
+            <Group justify="flex-end" mt="md">
+              <Button color="teal" onClick={closeShortcutsModal}>
+                Got it
+              </Button>
+            </Group>
+          </Stack>
         </Modal>
       </main>
     </AppShell>

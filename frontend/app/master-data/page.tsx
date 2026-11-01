@@ -183,6 +183,42 @@ export default function MasterDataPage() {
     onError: (err: Error) => notifications.show({ title: 'Error', message: err.message, color: 'red' }),
   });
 
+  const deleteSupplierMutation = useMutation({
+    mutationFn: (id: number) => deleteSupplier(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['suppliers'] });
+      notifications.show({ title: 'Supplier Deactivated', message: 'Supplier status updated.', color: 'teal', icon: <IconCheck size={16} /> });
+    },
+    onError: (err: Error) => notifications.show({ title: 'Error', message: err.message, color: 'red' }),
+  });
+
+  const deleteCustomerMutation = useMutation({
+    mutationFn: (id: number) => deleteCustomer(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      notifications.show({ title: 'Customer Deactivated', message: 'Customer status updated.', color: 'teal', icon: <IconCheck size={16} /> });
+    },
+    onError: (err: Error) => notifications.show({ title: 'Error', message: err.message, color: 'red' }),
+  });
+
+  const deleteMfrMutation = useMutation({
+    mutationFn: (id: number) => deleteManufacturer(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['manufacturers'] });
+      notifications.show({ title: 'Manufacturer Deactivated', message: 'Manufacturer status updated.', color: 'teal', icon: <IconCheck size={16} /> });
+    },
+    onError: (err: Error) => notifications.show({ title: 'Error', message: err.message, color: 'red' }),
+  });
+
+  const deleteUomMutation = useMutation({
+    mutationFn: (id: number) => deleteUnitOfMeasurement(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['uom'] });
+      notifications.show({ title: 'Unit Deactivated', message: 'Unit status updated.', color: 'teal', icon: <IconCheck size={16} /> });
+    },
+    onError: (err: Error) => notifications.show({ title: 'Error', message: err.message, color: 'red' }),
+  });
+
   // Customer handlers
   const handleOpenCreateCustomer = () => {
     setEditingCustomer(null);
@@ -408,9 +444,16 @@ export default function MasterDataPage() {
                         </Table.Td>
                         <Table.Td ta="right">
                           <Group gap="xs" justify="flex-end">
-                            <ActionIcon variant="subtle" color="teal" onClick={() => handleOpenEditSupplier(supplier)}>
-                              <IconEdit size={16} />
-                            </ActionIcon>
+                            <Tooltip label="Edit Supplier">
+                              <ActionIcon variant="subtle" color="teal" onClick={() => handleOpenEditSupplier(supplier)}>
+                                <IconEdit size={16} />
+                              </ActionIcon>
+                            </Tooltip>
+                            <Tooltip label="Deactivate Supplier">
+                              <ActionIcon variant="subtle" color="red" onClick={() => deleteSupplierMutation.mutate(supplier.id)}>
+                                <IconTrash size={16} />
+                              </ActionIcon>
+                            </Tooltip>
                           </Group>
                         </Table.Td>
                       </Table.Tr>
@@ -466,9 +509,16 @@ export default function MasterDataPage() {
                         </Table.Td>
                         <Table.Td ta="right">
                           <Group gap="xs" justify="flex-end">
-                            <ActionIcon variant="subtle" color="teal" onClick={() => handleOpenEditCustomer(customer)}>
-                              <IconEdit size={16} />
-                            </ActionIcon>
+                            <Tooltip label="Edit Customer">
+                              <ActionIcon variant="subtle" color="teal" onClick={() => handleOpenEditCustomer(customer)}>
+                                <IconEdit size={16} />
+                              </ActionIcon>
+                            </Tooltip>
+                            <Tooltip label="Deactivate Customer">
+                              <ActionIcon variant="subtle" color="red" onClick={() => deleteCustomerMutation.mutate(customer.id)}>
+                                <IconTrash size={16} />
+                              </ActionIcon>
+                            </Tooltip>
                           </Group>
                         </Table.Td>
                       </Table.Tr>
@@ -510,9 +560,16 @@ export default function MasterDataPage() {
                         </Table.Td>
                         <Table.Td ta="right">
                           <Group gap="xs" justify="flex-end">
-                            <ActionIcon variant="subtle" color="teal" onClick={() => handleOpenEditMfr(mfr)}>
-                              <IconEdit size={16} />
-                            </ActionIcon>
+                            <Tooltip label="Edit Manufacturer">
+                              <ActionIcon variant="subtle" color="teal" onClick={() => handleOpenEditMfr(mfr)}>
+                                <IconEdit size={16} />
+                              </ActionIcon>
+                            </Tooltip>
+                            <Tooltip label="Deactivate Manufacturer">
+                              <ActionIcon variant="subtle" color="red" onClick={() => deleteMfrMutation.mutate(mfr.id)}>
+                                <IconTrash size={16} />
+                              </ActionIcon>
+                            </Tooltip>
                           </Group>
                         </Table.Td>
                       </Table.Tr>
@@ -556,9 +613,16 @@ export default function MasterDataPage() {
                         </Table.Td>
                         <Table.Td ta="right">
                           <Group gap="xs" justify="flex-end">
-                            <ActionIcon variant="subtle" color="teal" onClick={() => handleOpenEditUom(uom)}>
-                              <IconEdit size={16} />
-                            </ActionIcon>
+                            <Tooltip label="Edit Unit">
+                              <ActionIcon variant="subtle" color="teal" onClick={() => handleOpenEditUom(uom)}>
+                                <IconEdit size={16} />
+                              </ActionIcon>
+                            </Tooltip>
+                            <Tooltip label="Deactivate Unit">
+                              <ActionIcon variant="subtle" color="red" onClick={() => deleteUomMutation.mutate(uom.id)}>
+                                <IconTrash size={16} />
+                              </ActionIcon>
+                            </Tooltip>
                           </Group>
                         </Table.Td>
                       </Table.Tr>

@@ -4,14 +4,29 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Alert, Button, Divider, PasswordInput, Text, TextInput } from '@mantine/core';
+import {
+  Alert,
+  Badge,
+  Button,
+  Divider,
+  Group,
+  PasswordInput,
+  Stack,
+  Text,
+  TextInput,
+  ThemeIcon,
+} from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
   IconAlertCircle,
+  IconBolt,
   IconBuildingStore,
   IconCheck,
+  IconChartBar,
   IconLock,
   IconMail,
+  IconMedicalCross,
+  IconShieldCheck,
 } from '@tabler/icons-react';
 import { useMutation } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
@@ -21,8 +36,8 @@ import { login } from '@/features/auth/api';
 import { useAuthStore } from '@/stores/auth-store';
 
 const schema = z.object({
-  email: z.string().email('Enter a valid email address.'),
-  password: z.string().min(1, 'Enter your password.'),
+  email: z.string().email('Please enter a valid email address.'),
+  password: z.string().min(1, 'Please enter your password.'),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -61,8 +76,8 @@ export default function LoginPage() {
       }
 
       notifications.show({
-        title: 'Welcome back',
-        message: `Signed in as ${data.user.name}`,
+        title: 'Welcome back!',
+        message: `Signed in as ${data.user.name}. Opening your pharmacy terminal...`,
         color: 'teal',
         icon: <IconCheck size={16} />,
       });
@@ -78,24 +93,78 @@ export default function LoginPage() {
 
   return (
     <main className="auth-page">
+      {/* Brand Hero Showcase */}
       <section className="auth-aside">
-        <div className="brand">
-          <span className="brand-mark">✚</span>
-          <span className="brand-name">Pharmalytics</span>
+        <div className="brand" style={{ padding: 0 }}>
+          <span className="brand-mark">
+            <IconMedicalCross size={22} stroke={2.5} />
+          </span>
+          <span className="brand-name" style={{ color: '#ffffff' }}>Pharmalytics</span>
         </div>
+
         <div>
-          <div className="eyebrow" style={{ color: '#87d2bf' }}>Pharmacy Operations Hub</div>
-          <h1>Every batch, unit, and transaction in its right place.</h1>
-          <p>
-            Enterprise pharmacy management built for high-throughput counters, strict batch tracking,
-            and audit-grade stock movements.
+          <Badge color="teal" variant="light" size="lg" radius="sm" mb="md" style={{ background: '#134e48', color: '#5eead4' }}>
+            All-in-One Pharmacy Operating System
+          </Badge>
+          <h1 style={{ color: '#ffffff', fontSize: 'clamp(32px, 3.8vw, 48px)', lineHeight: 1.15, fontWeight: 800, margin: '0 0 16px 0' }}>
+            Run a Faster, Smarter, and More Profitable Pharmacy.
+          </h1>
+          <p style={{ color: '#ccfbf1', fontSize: 16, lineHeight: 1.6, margin: '0 0 28px 0', maxWidth: 500 }}>
+            From lightning-fast counter billing to FEFO batch tracking and automated accounting — Pharmalytics empowers your team to serve walk-in patients faster and eliminate expired medicine losses.
           </p>
+
+          {/* Business Value Highlights */}
+          <Stack gap="md">
+            <Group gap="sm" wrap="nowrap" align="flex-start">
+              <ThemeIcon color="teal" variant="light" size="md" radius="xl" style={{ background: '#134e48', color: '#5eead4' }}>
+                <IconBolt size={18} />
+              </ThemeIcon>
+              <div>
+                <Text size="sm" fw={700} c="#ffffff">
+                  Rapid OTC Counter Billing
+                </Text>
+                <Text size="xs" c="#99f6e4">
+                  Barcode scanning, instant loose tablet (Goli) and strip (Patta) sales with automatic change calculation.
+                </Text>
+              </div>
+            </Group>
+
+            <Group gap="sm" wrap="nowrap" align="flex-start">
+              <ThemeIcon color="teal" variant="light" size="md" radius="xl" style={{ background: '#134e48', color: '#5eead4' }}>
+                <IconShieldCheck size={18} />
+              </ThemeIcon>
+              <div>
+                <Text size="sm" fw={700} c="#ffffff">
+                  Zero Expired Stock Waste
+                </Text>
+                <Text size="xs" c="#99f6e4">
+                  First-Expired First-Out (FEFO) automated allocation prevents shelf obsolescence.
+                </Text>
+              </div>
+            </Group>
+
+            <Group gap="sm" wrap="nowrap" align="flex-start">
+              <ThemeIcon color="teal" variant="light" size="md" radius="xl" style={{ background: '#134e48', color: '#5eead4' }}>
+                <IconChartBar size={18} />
+              </ThemeIcon>
+              <div>
+                <Text size="sm" fw={700} c="#ffffff">
+                  Automated Daily Profit & Loss
+                </Text>
+                <Text size="xs" c="#99f6e4">
+                  Every counter sale and shipment automatically updates your cashbook and double-entry general ledger.
+                </Text>
+              </div>
+            </Group>
+          </Stack>
         </div>
-        <Text size="xs" c="#9ebbb5">
-          Multi-tenant isolated workspace &bull; Automated compliance
+
+        <Text size="xs" c="#a7f3d0">
+          Trusted by modern retail & clinical pharmacies worldwide &bull; Bank-grade security &bull; 99.9% Uptime
         </Text>
       </section>
 
+      {/* Login Form */}
       <section className="auth-main">
         <motion.div
           initial={{ opacity: 0, y: 16 }}
@@ -104,28 +173,28 @@ export default function LoginPage() {
           style={{ width: '100%', maxWidth: 440 }}
         >
           <div className="auth-form">
-            <div className="eyebrow">Secure Access</div>
-            <h2 className="page-title" style={{ fontSize: 28, marginBottom: 4 }}>Sign in</h2>
+            <div className="eyebrow">Welcome Back</div>
+            <h2 className="page-title" style={{ fontSize: 28, marginBottom: 4 }}>Sign in to your Store</h2>
             <Text c="dimmed" size="sm" mb="xl">
-              Access your pharmacy workspace with your team credentials.
+              Access your pharmacy counter, inventory batches, and daily sales reports.
             </Text>
 
             {mutation.isError && (
               <Alert
                 icon={<IconAlertCircle size={16} />}
-                title="Authentication failed"
+                title="Sign-in failed"
                 color="red"
                 mb="md"
                 variant="light"
               >
-                {mutation.error.message}
+                {mutation.error.message || 'Incorrect email or password. Please verify and try again.'}
               </Alert>
             )}
 
             <form onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
               <TextInput
-                label="Email address"
-                placeholder="pharmacist@pharmacy.com"
+                label="Staff / Manager Email"
+                placeholder="pharmacist@yourstore.com"
                 autoComplete="email"
                 leftSection={<IconMail size={16} stroke={1.5} />}
                 {...form.register('email')}
@@ -135,7 +204,7 @@ export default function LoginPage() {
               <PasswordInput
                 mt="md"
                 label="Password"
-                placeholder="••••••••••••"
+                placeholder="Enter your password"
                 autoComplete="current-password"
                 leftSection={<IconLock size={16} stroke={1.5} />}
                 {...form.register('password')}
@@ -147,9 +216,10 @@ export default function LoginPage() {
                 fullWidth
                 mt="xl"
                 size="md"
+                color="teal"
                 loading={mutation.isPending}
               >
-                Sign in to workspace
+                Sign in to Pharmacy
               </Button>
             </form>
 
@@ -164,11 +234,11 @@ export default function LoginPage() {
               fullWidth
               leftSection={<IconBuildingStore size={18} stroke={1.8} />}
             >
-              Create & Register Pharmacy Workspace
+              Start Free Pharmacy Account
             </Button>
 
             <Text ta="center" size="xs" c="dimmed" mt="md">
-              Need to create a new tenant partition? Click above to register.
+              Opening a new medical store or clinic branch? Setup takes under 60 seconds.
             </Text>
           </div>
         </motion.div>

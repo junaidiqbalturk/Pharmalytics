@@ -89,6 +89,12 @@ class JournalEntryController extends Controller
         /** @var Tenant $tenant */
         $tenant = $request->attributes->get('tenant');
 
+        $account = \App\Modules\Accounting\Models\ChartOfAccount::query()
+            ->where('tenant_id', $tenant->id)
+            ->findOrFail($chartOfAccountId);
+
+        $isCreditNormal = in_array($account->type, ['liability', 'equity', 'revenue'], true);
+
         $items = JournalEntryItem::query()
             ->with('journalEntry')
             ->where('chart_of_account_id', $chartOfAccountId)
@@ -97,10 +103,10 @@ class JournalEntryController extends Controller
             ->get();
 
         $balance = 0;
-        $ledgerRows = $items->map(function ($item) use (&$balance) {
+        $ledgerRows = $items->map(function ($item) use (&$balance, $isCreditNormal) {
             $debit = $item->type === 'debit' ? (float) $item->amount : 0;
             $credit = $item->type === 'credit' ? (float) $item->amount : 0;
-            $balance += ($debit - $credit);
+            $balance += $isCreditNormal ? ($credit - $debit) : ($debit - $credit);
 
             return [
                 'id' => $item->id,

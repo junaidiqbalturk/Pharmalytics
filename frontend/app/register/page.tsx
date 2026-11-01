@@ -4,15 +4,32 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Alert, Button, PasswordInput, Select, Text, TextInput } from '@mantine/core';
+import {
+  Alert,
+  Badge,
+  Button,
+  Group,
+  PasswordInput,
+  Select,
+  Stack,
+  Text,
+  TextInput,
+  ThemeIcon,
+} from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
   IconAlertCircle,
+  IconBolt,
   IconBuildingStore,
   IconCheck,
   IconCoin,
   IconLock,
   IconMail,
+  IconMapPin,
+  IconMedicalCross,
+  IconPackage,
+  IconReceipt2,
+  IconShieldCheck,
   IconUser,
 } from '@tabler/icons-react';
 import { useMutation } from '@tanstack/react-query';
@@ -24,10 +41,11 @@ import { useAuthStore } from '@/stores/auth-store';
 
 const schema = z
   .object({
-    name: z.string().min(2, 'Enter your full name.'),
-    email: z.string().email('Enter a valid email address.'),
-    tenantName: z.string().min(2, 'Enter your pharmacy name.'),
-    currencyCode: z.string().length(3, 'Choose an operating currency.'),
+    name: z.string().min(2, 'Please enter your full name.'),
+    email: z.string().email('Please enter a valid email address.'),
+    tenantName: z.string().min(2, 'Please enter your pharmacy or medical store name.'),
+    countryCode: z.string().length(2, 'Please select your operating country.'),
+    currencyCode: z.string().length(3, 'Please select your operating currency.'),
     password: z
       .string()
       .min(12, 'Password must be at least 12 characters.')
@@ -37,7 +55,7 @@ const schema = z
     passwordConfirmation: z.string().min(1, 'Please confirm your password.'),
   })
   .refine((values) => values.password === values.passwordConfirmation, {
-    message: 'Passwords do not match.',
+    message: 'Passwords do not match. Please re-enter identical passwords.',
     path: ['passwordConfirmation'],
   });
 
@@ -59,12 +77,14 @@ export default function RegisterPage() {
       name: '',
       email: '',
       tenantName: '',
-      currencyCode: 'USD',
+      countryCode: 'PK',
+      currencyCode: 'PKR',
       password: '',
       passwordConfirmation: '',
     },
   });
 
+  const countryCode = useWatch({ control: form.control, name: 'countryCode' });
   const currencyCode = useWatch({ control: form.control, name: 'currencyCode' });
 
   const mutation = useMutation({
@@ -77,6 +97,19 @@ export default function RegisterPage() {
         tenant: {
           name: values.tenantName,
           currency_code: values.currencyCode,
+          country_code: values.countryCode,
+          country:
+            values.countryCode === 'PK'
+              ? 'Pakistan'
+              : values.countryCode === 'US'
+              ? 'United States'
+              : values.countryCode === 'GB'
+              ? 'United Kingdom'
+              : values.countryCode === 'AE'
+              ? 'United Arab Emirates'
+              : values.countryCode === 'SA'
+              ? 'Saudi Arabia'
+              : 'International',
         },
       }),
     onSuccess: ({ data }) => {
@@ -90,8 +123,8 @@ export default function RegisterPage() {
       }
 
       notifications.show({
-        title: 'Workspace Initialized',
-        message: `${data.tenant?.name ?? 'Workspace'} created with default pharmaceutical categories.`,
+        title: 'Welcome to Pharmalytics!',
+        message: `${data.tenant?.name ?? 'Your pharmacy store'} is live with essential medicine categories and ready for sales.`,
         color: 'teal',
         icon: <IconCheck size={16} />,
       });
@@ -102,24 +135,78 @@ export default function RegisterPage() {
 
   return (
     <main className="auth-page">
+      {/* Brand Hero Showcase */}
       <section className="auth-aside">
-        <div className="brand">
-          <span className="brand-mark">✚</span>
-          <span className="brand-name">Pharmalytics</span>
+        <div className="brand" style={{ padding: 0 }}>
+          <span className="brand-mark">
+            <IconMedicalCross size={22} stroke={2.5} />
+          </span>
+          <span className="brand-name" style={{ color: '#ffffff' }}>Pharmalytics</span>
         </div>
+
         <div>
-          <div className="eyebrow" style={{ color: '#87d2bf' }}>Tenant Provisioning</div>
-          <h1>Autonomous Pharmacy Multi-Tenancy.</h1>
-          <p>
-            Each pharmacy workspace operates with an isolated data partition, automated default
-            formulary categories, role hierarchies, and dedicated inventory ledgers.
+          <Badge color="teal" variant="light" size="lg" radius="sm" mb="md" style={{ background: '#134e48', color: '#5eead4' }}>
+            Next-Generation Pharmacy Retail
+          </Badge>
+          <h1 style={{ color: '#ffffff', fontSize: 'clamp(32px, 3.8vw, 48px)', lineHeight: 1.15, fontWeight: 800, margin: '0 0 16px 0' }}>
+            Launch Your Smart Digital Pharmacy in Under 60 Seconds.
+          </h1>
+          <p style={{ color: '#ccfbf1', fontSize: 16, lineHeight: 1.6, margin: '0 0 28px 0', maxWidth: 500 }}>
+            Whether you operate a bustling community medical store in Pakistan or a modern clinical health chain abroad — Pharmalytics unifies your sales counter, FEFO inventory, and financial accounting into one effortless system.
           </p>
+
+          {/* Core Feature Value Props */}
+          <Stack gap="md">
+            <Group gap="sm" wrap="nowrap" align="flex-start">
+              <ThemeIcon color="teal" variant="light" size="md" radius="xl" style={{ background: '#134e48', color: '#5eead4' }}>
+                <IconReceipt2 size={18} />
+              </ThemeIcon>
+              <div>
+                <Text size="sm" fw={700} c="#ffffff">
+                  Tailored to Local Dispensing Habits
+                </Text>
+                <Text size="xs" c="#99f6e4">
+                  Full Pakistani market support for loose tablet (Goli), strip (Patta), and box (Dabba) dispensing with zero calculation errors.
+                </Text>
+              </div>
+            </Group>
+
+            <Group gap="sm" wrap="nowrap" align="flex-start">
+              <ThemeIcon color="teal" variant="light" size="md" radius="xl" style={{ background: '#134e48', color: '#5eead4' }}>
+                <IconPackage size={18} />
+              </ThemeIcon>
+              <div>
+                <Text size="sm" fw={700} c="#ffffff">
+                  Automate Supplier Shipments
+                </Text>
+                <Text size="xs" c="#99f6e4">
+                  Order from distributors and intake goods receiving notes (GRN) that instantly create traceable inventory batches.
+                </Text>
+              </div>
+            </Group>
+
+            <Group gap="sm" wrap="nowrap" align="flex-start">
+              <ThemeIcon color="teal" variant="light" size="md" radius="xl" style={{ background: '#134e48', color: '#5eead4' }}>
+                <IconShieldCheck size={18} />
+              </ThemeIcon>
+              <div>
+                <Text size="sm" fw={700} c="#ffffff">
+                  Audit-Ready Financial Peace of Mind
+                </Text>
+                <Text size="xs" c="#99f6e4">
+                  Real-time double-entry general ledger and automated P&L statements without needing an in-house accountant.
+                </Text>
+              </div>
+            </Group>
+          </Stack>
         </div>
-        <Text size="xs" c="#9ebbb5">
-          Tenant data is encrypted and strictly scoped by tenant boundaries.
+
+        <Text size="xs" c="#a7f3d0">
+          No credit card required &bull; 100% Private & encrypted store data &bull; Cancel anytime
         </Text>
       </section>
 
+      {/* Registration Form */}
       <section className="auth-main">
         <motion.div
           initial={{ opacity: 0, y: 16 }}
@@ -131,12 +218,12 @@ export default function RegisterPage() {
             className="auth-form"
             onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
           >
-            <div className="eyebrow">Onboarding</div>
+            <div className="eyebrow">Get Started Free</div>
             <h2 className="page-title" style={{ fontSize: 28, marginBottom: 4 }}>
-              Register Workspace
+              Register Your Pharmacy
             </h2>
             <Text c="dimmed" size="sm" mb="lg">
-              Set up your pharmacy workspace and initial administrator account.
+              Set up your pharmacy store and initial manager account in moments.
             </Text>
 
             {mutation.isError && (
@@ -147,13 +234,13 @@ export default function RegisterPage() {
                 mb="md"
                 variant="light"
               >
-                {mutation.error.message}
+                {mutation.error.message || 'Could not create pharmacy account. Please verify details and try again.'}
               </Alert>
             )}
 
             <TextInput
-              label="Administrator Name"
-              placeholder="Dr. Sarah Jenkins"
+              label="Pharmacy Owner / Manager Name"
+              placeholder="e.g. Dr. Junaid Iqbal"
               autoComplete="name"
               leftSection={<IconUser size={16} stroke={1.5} />}
               {...form.register('name')}
@@ -162,8 +249,8 @@ export default function RegisterPage() {
 
             <TextInput
               mt="sm"
-              label="Work Email"
-              placeholder="admin@cityhealthpharma.com"
+              label="Official Business Email"
+              placeholder="owner@yourpharmacy.com"
               autoComplete="email"
               leftSection={<IconMail size={16} stroke={1.5} />}
               {...form.register('email')}
@@ -172,8 +259,8 @@ export default function RegisterPage() {
 
             <TextInput
               mt="sm"
-              label="Pharmacy Name"
-              placeholder="City Health Central Pharmacy"
+              label="Pharmacy or Medical Store Name"
+              placeholder="e.g. City Care Meds & Clinic"
               leftSection={<IconBuildingStore size={16} stroke={1.5} />}
               {...form.register('tenantName')}
               error={form.formState.errors.tenantName?.message}
@@ -181,11 +268,42 @@ export default function RegisterPage() {
 
             <Select
               mt="sm"
-              label="Base Operating Currency"
+              label="Pharmacy Location / Country"
+              description="Automatically activates localized retail dispensing terms (Patta, Goli in Pakistan)."
+              leftSection={<IconMapPin size={16} stroke={1.5} />}
+              data={[
+                { value: 'PK', label: '🇵🇰 Pakistan (Enables Patta / Goli / Dabba OTC Mode)' },
+                { value: 'US', label: '🇺🇸 United States (Standard Unit / Pack Mode)' },
+                { value: 'GB', label: '🇬🇧 United Kingdom (Standard Unit / Pack Mode)' },
+                { value: 'AE', label: '🇦🇪 United Arab Emirates' },
+                { value: 'SA', label: '🇸🇦 Saudi Arabia' },
+              ]}
+              value={countryCode}
+              onChange={(value) => {
+                const c = value ?? 'PK';
+                form.setValue('countryCode', c, { shouldValidate: true });
+                if (c === 'PK') {
+                  form.setValue('currencyCode', 'PKR', { shouldValidate: true });
+                } else if (c === 'US') {
+                  form.setValue('currencyCode', 'USD', { shouldValidate: true });
+                } else if (c === 'GB') {
+                  form.setValue('currencyCode', 'GBP', { shouldValidate: true });
+                } else if (c === 'AE') {
+                  form.setValue('currencyCode', 'AED', { shouldValidate: true });
+                } else if (c === 'SA') {
+                  form.setValue('currencyCode', 'SAR', { shouldValidate: true });
+                }
+              }}
+              error={form.formState.errors.countryCode?.message}
+            />
+
+            <Select
+              mt="sm"
+              label="Store Billing Currency"
               leftSection={<IconCoin size={16} stroke={1.5} />}
               data={[
-                { value: 'USD', label: 'USD · United States Dollar ($)' },
                 { value: 'PKR', label: 'PKR · Pakistani Rupee (₨)' },
+                { value: 'USD', label: 'USD · United States Dollar ($)' },
                 { value: 'EUR', label: 'EUR · Euro (€)' },
                 { value: 'GBP', label: 'GBP · British Pound (£)' },
                 { value: 'AED', label: 'AED · UAE Dirham (AED)' },
@@ -193,15 +311,15 @@ export default function RegisterPage() {
               ]}
               value={currencyCode}
               onChange={(value) =>
-                form.setValue('currencyCode', value ?? 'USD', { shouldValidate: true })
+                form.setValue('currencyCode', value ?? 'PKR', { shouldValidate: true })
               }
               error={form.formState.errors.currencyCode?.message}
             />
 
             <PasswordInput
               mt="sm"
-              label="Password"
-              placeholder="Min 12 chars with upper, lower, and number"
+              label="Account Password"
+              placeholder="Min 12 chars with uppercase, lowercase & numbers"
               autoComplete="new-password"
               leftSection={<IconLock size={16} stroke={1.5} />}
               {...form.register('password')}
@@ -211,7 +329,7 @@ export default function RegisterPage() {
             <PasswordInput
               mt="sm"
               label="Confirm Password"
-              placeholder="Repeat your password"
+              placeholder="Re-type your password"
               autoComplete="new-password"
               leftSection={<IconLock size={16} stroke={1.5} />}
               {...form.register('passwordConfirmation')}
@@ -221,17 +339,18 @@ export default function RegisterPage() {
             <Button
               type="submit"
               fullWidth
-              mt="lg"
+              mt="xl"
               size="md"
+              color="teal"
               loading={mutation.isPending}
             >
-              Initialize Pharmacy Workspace
+              Start Free Pharmacy Account
             </Button>
 
-            <Text ta="center" size="sm" c="dimmed" mt="md">
-              Already have a workspace account?{' '}
-              <Link href="/login" style={{ color: 'var(--brand)', fontWeight: 600 }}>
-                Sign in
+            <Text size="xs" c="dimmed" ta="center" mt="md">
+              Already have a pharmacy account?{' '}
+              <Link href="/login" style={{ color: '#0d9488', fontWeight: 700 }}>
+                Sign in here
               </Link>
             </Text>
           </form>

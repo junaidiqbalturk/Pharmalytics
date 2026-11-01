@@ -126,6 +126,46 @@ class GoodsReceiptController extends Controller
                 }
             }
 
+            // Automatic Double-Entry to Accounting for GRN if default accounts exist
+            $inventoryAccount = \App\Modules\Accounting\Models\ChartOfAccount::query()
+                ->where('tenant_id', $tenant->id)
+                ->where('code', '1200')
+                ->where('is_active', true)
+                ->first();
+
+            $payableAccount = \App\Modules\Accounting\Models\ChartOfAccount::query()
+                ->where('tenant_id', $tenant->id)
+                ->where('code', '2010')
+                ->where('is_active', true)
+                ->first();
+
+            if ($inventoryAccount && $payableAccount && $totalAmount > 0) {
+                $entry = \App\Modules\Accounting\Models\JournalEntry::query()->create([
+                    'tenant_id' => $tenant->id,
+                    'entry_number' => 'JE-'.strtoupper(Str::random(8)),
+                    'date' => $data['received_date'] ?? now()->toDateString(),
+                    'description' => 'Automated Goods Intake Entry '.$grnNumber,
+                    'reference_type' => 'GoodsReceipt',
+                    'reference_id' => $goodsReceipt->id,
+                    'status' => 'posted',
+                    'created_by' => $user?->id,
+                ]);
+
+                $entry->items()->create([
+                    'chart_of_account_id' => $inventoryAccount->id,
+                    'type' => 'debit',
+                    'amount' => $totalAmount,
+                    'description' => 'Inventory asset intake under GRN',
+                ]);
+
+                $entry->items()->create([
+                    'chart_of_account_id' => $payableAccount->id,
+                    'type' => 'credit',
+                    'amount' => $totalAmount,
+                    'description' => 'Accounts payable liability for GRN',
+                ]);
+            }
+
             return $goodsReceipt;
         });
 

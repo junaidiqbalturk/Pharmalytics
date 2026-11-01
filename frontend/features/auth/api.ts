@@ -28,6 +28,8 @@ export type RegistrationInput = {
   tenant: {
     name: string;
     currency_code: string;
+    country_code?: string;
+    country?: string;
     timezone?: string;
   };
 };

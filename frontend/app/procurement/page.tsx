@@ -64,6 +64,8 @@ export default function ProcurementPage() {
   const [grnModalOpened, { open: openGrnModal, close: closeGrnModal }] = useDisclosure(false);
   const [detailModalOpened, { open: openDetailModal, close: closeDetailModal }] = useDisclosure(false);
   const [selectedPo, setSelectedPo] = useState<PurchaseOrder | null>(null);
+  const [grnDetailModalOpened, { open: openGrnDetailModal, close: closeGrnDetailModal }] = useDisclosure(false);
+  const [selectedGrn, setSelectedGrn] = useState<GoodsReceipt | null>(null);
 
   // Queries
   const { data: posData, isLoading: isLoadingPos } = useQuery({
@@ -634,6 +636,19 @@ export default function ProcurementPage() {
                                   Receive
                                 </Button>
                               )}
+
+                              {(po.status === 'draft' || po.status === 'ordered') && (
+                                <Tooltip label="Cancel Purchase Order">
+                                  <ActionIcon
+                                    size="sm"
+                                    color="red"
+                                    variant="subtle"
+                                    onClick={() => updatePoStatusMutation.mutate({ id: po.id, status: 'cancelled' })}
+                                  >
+                                    <IconX size={14} />
+                                  </ActionIcon>
+                                </Tooltip>
+                              )}
                             </Group>
                           </Table.Td>
                         </Table.Tr>
@@ -682,6 +697,7 @@ export default function ProcurementPage() {
                       <Table.Th>Total Cost</Table.Th>
                       <Table.Th>Payment Status</Table.Th>
                       <Table.Th>Received By</Table.Th>
+                      <Table.Th style={{ width: 80 }}>Action</Table.Th>
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
@@ -727,6 +743,19 @@ export default function ProcurementPage() {
                         </Table.Td>
                         <Table.Td>
                           <Text size="xs">{grn.creator?.name || 'Administrator'}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Button
+                            size="xs"
+                            variant="subtle"
+                            color="teal"
+                            onClick={() => {
+                              setSelectedGrn(grn);
+                              openGrnDetailModal();
+                            }}
+                          >
+                            View
+                          </Button>
                         </Table.Td>
                       </Table.Tr>
                     ))}
@@ -1118,6 +1147,96 @@ export default function ProcurementPage() {
 
               <Group justify="flex-end" mt="md">
                 <Button variant="default" onClick={closeDetailModal}>
+                  Close
+                </Button>
+              </Group>
+            </Stack>
+          )}
+        </Modal>
+
+        {/* MODAL: VIEW GRN DETAILS */}
+        <Modal
+          opened={grnDetailModalOpened}
+          onClose={closeGrnDetailModal}
+          title={`Goods Receipt Note ${selectedGrn?.grn_number}`}
+          size="lg"
+          centered
+        >
+          {selectedGrn && (
+            <Stack gap="md">
+              <Group justify="space-between">
+                <div>
+                  <Text size="xs" c="dimmed">
+                    Supplier & Invoice
+                  </Text>
+                  <Text size="sm" fw={600}>
+                    {selectedGrn.supplier?.name} {selectedGrn.invoice_number ? `(${selectedGrn.invoice_number})` : ''}
+                  </Text>
+                </div>
+                <div>
+                  <Text size="xs" c="dimmed">
+                    Received Date
+                  </Text>
+                  <Text size="sm">{new Date(selectedGrn.received_date).toLocaleDateString()}</Text>
+                </div>
+              </Group>
+
+              <Table highlightOnHover>
+                <Table.Thead style={{ background: '#f8fafc' }}>
+                  <Table.Tr>
+                    <Table.Th>Medicine</Table.Th>
+                    <Table.Th>Batch #</Table.Th>
+                    <Table.Th>Expiry</Table.Th>
+                    <Table.Th>Qty Intake</Table.Th>
+                    <Table.Th>Cost</Table.Th>
+                    <Table.Th>Subtotal</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {selectedGrn.items?.map((it, idx) => (
+                    <Table.Tr key={idx}>
+                      <Table.Td>
+                        <Text size="sm" fw={600}>
+                          {it.medicine?.name || `Medicine #${it.medicine_id}`}
+                        </Text>
+                      </Table.Td>
+                      <Table.Td>
+                        <Badge size="xs" variant="outline" color="dark">
+                          {it.batch_number}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td>
+                        <Text size="xs">{new Date(it.expiry_date).toLocaleDateString()}</Text>
+                      </Table.Td>
+                      <Table.Td>
+                        <Badge size="xs" color="teal">
+                          {it.quantity_received}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td>
+                        {currency} {Number(it.unit_cost).toFixed(2)}
+                      </Table.Td>
+                      <Table.Td>
+                        <Text size="sm" fw={600}>
+                          {currency} {Number(it.subtotal).toFixed(2)}
+                        </Text>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+
+              <Group justify="space-between">
+                <Text size="sm" fw={600}>
+                  Total Shipment Cost:
+                </Text>
+                <Text size="md" fw={700} c="teal.8">
+                  {currency} {Number(selectedGrn.total_amount).toFixed(2)}
+                </Text>
+              </Group>
+
+              <Group justify="flex-end" mt="md">
+                <Button variant="default" onClick={closeGrnDetailModal}>
                   Close
                 </Button>
               </Group>

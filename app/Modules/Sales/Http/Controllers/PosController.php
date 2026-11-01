@@ -166,6 +166,46 @@ class PosController extends Controller
                 'paid_at' => now(),
             ]);
 
+            // Automatic Double-Entry to Accounting if default accounts exist
+            $cashAccount = \App\Modules\Accounting\Models\ChartOfAccount::query()
+                ->where('tenant_id', $tenant->id)
+                ->where('code', '1010')
+                ->where('is_active', true)
+                ->first();
+
+            $salesAccount = \App\Modules\Accounting\Models\ChartOfAccount::query()
+                ->where('tenant_id', $tenant->id)
+                ->where('code', '4010')
+                ->where('is_active', true)
+                ->first();
+
+            if ($cashAccount && $salesAccount && $totalAmount > 0) {
+                $entry = \App\Modules\Accounting\Models\JournalEntry::query()->create([
+                    'tenant_id' => $tenant->id,
+                    'entry_number' => 'JE-'.strtoupper(Str::random(8)),
+                    'date' => now()->toDateString(),
+                    'description' => 'Automated POS Sale Entry '.$invoiceNumber,
+                    'reference_type' => 'Sale',
+                    'reference_id' => $sale->id,
+                    'status' => 'posted',
+                    'created_by' => $user?->id,
+                ]);
+
+                $entry->items()->create([
+                    'chart_of_account_id' => $cashAccount->id,
+                    'type' => 'debit',
+                    'amount' => $totalAmount,
+                    'description' => 'Cash received from POS sale',
+                ]);
+
+                $entry->items()->create([
+                    'chart_of_account_id' => $salesAccount->id,
+                    'type' => 'credit',
+                    'amount' => $totalAmount,
+                    'description' => 'POS OTC medicine sales revenue',
+                ]);
+            }
+
             return $sale;
         });
 

@@ -89,6 +89,10 @@ class ChartOfAccountController extends Controller
             ->where('tenant_id', $tenant->id)
             ->findOrFail($chartOfAccount);
 
+        if ($record->is_system) {
+            abort(422, 'System core accounts cannot be deactivated or deleted.');
+        }
+
         $record->update(['is_active' => false]);
 
         return response()->noContent();

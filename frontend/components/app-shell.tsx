@@ -15,6 +15,7 @@ import {
   Menu,
   Text,
   Tooltip,
+  useMantineColorScheme,
 } from '@mantine/core';
 import {
   IconActivityHeartbeat,
@@ -29,8 +30,10 @@ import {
   IconMaximize,
   IconMedicalCross,
   IconMinimize,
+  IconMoon,
   IconPackage,
   IconReceipt,
+  IconSun,
   IconUsers,
 } from '@tabler/icons-react';
 import { logout as logoutApi } from '@/features/auth/api';
@@ -53,6 +56,8 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
   const pathname = usePathname();
   const router = useRouter();
   const { accessToken, user, tenantId, tenants, clearSession, switchTenant } = useAuthStore();
+  const { colorScheme, setColorScheme } = useMantineColorScheme();
+  const isDark = colorScheme === 'dark';
   const [hasMounted, setHasMounted] = useState(false);
   const [isKioskActive, setIsKioskActive] = useState(false);
   const [isBrowserFullscreen, setIsBrowserFullscreen] = useState(false);
@@ -212,11 +217,23 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
                     </Text>
                   </div>
                 </Group>
-                <Tooltip label="Sign out" position="right">
-                  <ActionIcon variant="subtle" color="red" size="sm" onClick={handleLogout}>
-                    <IconLogout size={16} />
-                  </ActionIcon>
-                </Tooltip>
+                <Group gap={4}>
+                  <Tooltip label={isDark ? 'Day Shift (Light)' : '24/7 Night Shift (Dark)'} position="top">
+                    <ActionIcon
+                      variant="subtle"
+                      color={isDark ? 'yellow' : 'gray'}
+                      size="sm"
+                      onClick={() => setColorScheme(isDark ? 'light' : 'dark')}
+                    >
+                      {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
+                    </ActionIcon>
+                  </Tooltip>
+                  <Tooltip label="Sign out" position="right">
+                    <ActionIcon variant="subtle" color="red" size="sm" onClick={handleLogout}>
+                      <IconLogout size={16} />
+                    </ActionIcon>
+                  </Tooltip>
+                </Group>
               </Group>
             )}
           </div>
@@ -270,6 +287,19 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
                 <Badge variant="light" color="teal" size="md">
                   Operator: {user?.name} ({user?.roles?.[0] ?? 'Cashier'})
                 </Badge>
+
+                {/* Night Shift Toggle */}
+                <Tooltip label={isDark ? 'Day Shift (Light)' : '24/7 Night Shift (Dark)'}>
+                  <ActionIcon
+                    variant="light"
+                    color={isDark ? 'yellow' : 'teal'}
+                    size="md"
+                    radius="md"
+                    onClick={() => setColorScheme(isDark ? 'light' : 'dark')}
+                  >
+                    {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
+                  </ActionIcon>
+                </Tooltip>
 
                 {/* Fullscreen Toggle */}
                 <Tooltip label={isBrowserFullscreen ? 'Exit Native Fullscreen' : 'Enter Native Fullscreen'}>
@@ -334,6 +364,18 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
                     Kiosk Fullscreen Mode
                   </Button>
                 )}
+
+                <Tooltip label={isDark ? 'Day Shift (Light)' : '24/7 Night Shift (Dark)'}>
+                  <ActionIcon
+                    variant="light"
+                    color={isDark ? 'yellow' : 'teal'}
+                    size="md"
+                    radius="md"
+                    onClick={() => setColorScheme(isDark ? 'light' : 'dark')}
+                  >
+                    {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
+                  </ActionIcon>
+                </Tooltip>
 
                 <Badge variant="light" color="teal" radius="sm">
                   Role: {user?.roles?.[0] ?? 'Owner'}
