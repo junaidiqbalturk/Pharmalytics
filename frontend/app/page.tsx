@@ -39,6 +39,7 @@ import {
   IconFileInvoice,
   IconHelpCircle,
   IconKeyboard,
+  IconMedicalCross,
   IconMessageDots,
   IconMoon,
   IconPackages,
@@ -355,7 +356,7 @@ export default function LandingPage() {
             <Link href="/" style={{ textDecoration: 'none' }}>
               <Group gap={10} align="center">
                 <Box className="brand-mark" style={{ width: 40, height: 40, borderRadius: 10 }}>
-                  <IconPill size={22} stroke={2.2} />
+                  <IconMedicalCross size={22} stroke={2.5} />
                 </Box>
                 <Box>
                   <Text fw={800} size="lg" style={{ letterSpacing: '-0.03em', lineHeight: 1.1 }}>
@@ -971,7 +972,7 @@ export default function LandingPage() {
                       <Group justify="space-between" align="center">
                         <Group gap={6}>
                           <Box className="brand-mark" style={{ width: 26, height: 26, borderRadius: 6 }}>
-                            <IconPill size={14} />
+                            <IconMedicalCross size={14} stroke={2.5} />
                           </Box>
                           <Text fw={750} size="xs">Pharmalytics Mobile</Text>
                         </Group>
@@ -1241,7 +1242,7 @@ export default function LandingPage() {
             </Text>
           </Stack>
 
-          <SimpleGrid cols={{ base: 1, md: 2, lg: 4 }} spacing={24} align="stretch">
+          <SimpleGrid cols={{ base: 1, md: 2, lg: 4 }} spacing={24}>
             {pricingPlans.map((plan) => (
               <Card
                 key={plan.number}
@@ -1437,7 +1438,7 @@ export default function LandingPage() {
           <Group justify="space-between" align="center" style={{ flexWrap: 'wrap', gap: 20 }}>
             <Group gap={10} align="center">
               <Box className="brand-mark" style={{ width: 34, height: 34, borderRadius: 8 }}>
-                <IconPill size={18} stroke={2.2} />
+                <IconMedicalCross size={18} stroke={2.5} />
               </Box>
               <Box>
                 <Text fw={800} size="sm">Pharmalytics</Text>
