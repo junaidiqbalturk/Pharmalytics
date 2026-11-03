@@ -502,4 +502,154 @@ class SecurityRemediationTest extends TestCase
         $this->assertEquals('25.00', $putRes->json('data.max_discount_percentage'));
         $this->assertEquals('15.00', $putRes->json('data.default_tax_rate'));
     }
+
+    public function test_stock_adjustment_requires_mandatory_batch_selection(): void
+    {
+        ['tenant' => $tenant, 'headers' => $headers] = $this->createTenantWithOwner('Batch Adjustment Pharma');
+
+        $medicine = Medicine::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Amoxicillin 250mg',
+            'sku' => 'AMOX-250',
+            'is_active' => true,
+        ]);
+
+        // Attempt stock adjustment WITHOUT batch_id
+        $response = $this->postJson('/api/v1/stock-adjustments', [
+            'reason' => 'Vague count without batch',
+            'items' => [
+                [
+                    'medicine_id' => $medicine->id,
+                    'counted_quantity' => 50,
+                ],
+            ],
+        ], $headers);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors('items.0.batch_id');
+    }
+
+    public function test_anti_discount_stacking_prevents_cashier_exceeding_policy(): void
+    {
+        ['tenant' => $tenant] = $this->createTenantWithOwner('Anti Stacking Pharma');
+        $tenant->update(['max_discount_percentage' => 20.00]); // 20% max allowed
+
+        $cashier = User::create([
+            'name' => 'Cashier Stacker',
+            'email' => 'cashier.stack@pharmalytics.test',
+            'password' => Hash::make('Cashier123!'),
+        ]);
+        $tenant->users()->attach($cashier, ['is_default' => true]);
+        app(PermissionRegistrar::class)->setPermissionsTeamId($tenant->id);
+        $cashier->syncRoles(['cashier']);
+
+        $cashierHeaders = [
+            'Authorization' => 'Bearer '.$cashier->createToken('cashier-device')->plainTextToken,
+            'X-Tenant-ID' => (string) $tenant->id,
+        ];
+
+        $medicine = Medicine::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Pricey Medicine',
+            'sku' => 'PRICEY-01',
+            'selling_price' => 100.00,
+            'is_active' => true,
+        ]);
+
+        $batch = Batch::create([
+            'tenant_id' => $tenant->id,
+            'medicine_id' => $medicine->id,
+            'batch_number' => 'PRICEY-B1',
+            'expiry_date' => now()->addYear()->toDateString(),
+            'quantity' => 10,
+            'selling_price' => 100.00,
+            'is_active' => true,
+        ]);
+
+        // Cashier gives 15% line discount (15.00) AND 15.00 order discount
+        // Gross: 100.00. Total discount: 30.00 (30% effective discount > 20% cap)
+        $response = $this->postJson('/api/v1/pos/checkout', [
+            'paid_amount' => 70.00,
+            'payment_method' => 'cash',
+            'discount_amount' => 15.00,
+            'items' => [
+                [
+                    'medicine_id' => $medicine->id,
+                    'batch_id' => $batch->id,
+                    'quantity' => 1,
+                    'discount' => 15.00,
+                ],
+            ],
+        ], $cashierHeaders);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors('discount_amount');
+    }
+
+    public function test_only_owner_can_create_and_delete_admin_accounts(): void
+    {
+        ['tenant' => $tenant, 'headers' => $ownerHeaders] = $this->createTenantWithOwner('Hierarchy Pharma');
+
+        // 1. Owner creates Admin A
+        $createAdminRes = $this->postJson('/api/v1/staff', [
+            'name' => 'Admin Alice',
+            'email' => 'admin.alice@pharmalytics.test',
+            'password' => 'AdminPass123!',
+            'role' => 'admin',
+        ], $ownerHeaders);
+
+        $createAdminRes->assertStatus(201);
+        $adminAId = $createAdminRes->json('data.id');
+
+        $adminUser = User::find($adminAId);
+        $adminHeaders = [
+            'Authorization' => 'Bearer '.$adminUser->createToken('admin-device')->plainTextToken,
+            'X-Tenant-ID' => (string) $tenant->id,
+        ];
+
+        // Reset cached auth guard user so request authenticates with adminHeaders
+        $this->app['auth']->forgetGuards();
+
+        // 2. Admin Alice tries to create another Admin Bob -> FORBIDDEN (403)
+        $createAnotherAdminRes = $this->postJson('/api/v1/staff', [
+            'name' => 'Admin Bob',
+            'email' => 'admin.bob@pharmalytics.test',
+            'password' => 'AdminBob123!',
+            'role' => 'admin',
+        ], $adminHeaders);
+
+        $createAnotherAdminRes->assertStatus(403);
+
+        // 3. Admin Alice CAN create a Pharmacist
+        $createPharmRes = $this->postJson('/api/v1/staff', [
+            'name' => 'Pharmacist Charlie',
+            'email' => 'pharm.charlie@pharmalytics.test',
+            'password' => 'PharmPass123!',
+            'role' => 'pharmacist',
+        ], $adminHeaders);
+
+        $createPharmRes->assertStatus(201);
+        $pharmId = $createPharmRes->json('data.id');
+
+        // 4. Admin Alice tries to delete Admin Alice -> 422 (cannot delete self)
+        $this->deleteJson("/api/v1/staff/{$adminAId}", [], $adminHeaders)->assertStatus(422);
+
+        // 5. Owner creates Admin Dave
+        $this->app['auth']->forgetGuards();
+        $createDaveRes = $this->postJson('/api/v1/staff', [
+            'name' => 'Admin Dave',
+            'email' => 'admin.dave@pharmalytics.test',
+            'password' => 'AdminDave123!',
+            'role' => 'admin',
+        ], $ownerHeaders);
+        $daveId = $createDaveRes->json('data.id');
+
+        // 6. Admin Alice tries to delete Admin Dave -> FORBIDDEN (403)
+        $this->app['auth']->forgetGuards();
+        $this->deleteJson("/api/v1/staff/{$daveId}", [], $adminHeaders)->assertStatus(403);
+
+        // 7. Owner deletes Admin Dave -> SUCCEEDS (200)
+        $this->app['auth']->forgetGuards();
+        $this->deleteJson("/api/v1/staff/{$daveId}", [], $ownerHeaders)->assertStatus(200);
+    }
 }
