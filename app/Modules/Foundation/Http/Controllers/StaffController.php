@@ -105,6 +105,12 @@ class StaffController extends Controller
             return response()->json(['message' => 'Cannot remove tenant owner.'], 422);
         }
 
+        if ($user->hasRole('admin') && ! $request->user()?->hasRole('owner')) {
+            return response()->json([
+                'message' => 'Only the pharmacy owner can remove an Administrator from the pharmacy.',
+            ], 403);
+        }
+
         $tenant->users()->detach($user->id);
 
         return response()->json(['message' => 'Staff member removed from pharmacy.']);
