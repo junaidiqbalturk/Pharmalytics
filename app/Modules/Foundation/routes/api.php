@@ -19,9 +19,9 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/tenants', [TenantController::class, 'index']);
 
     Route::middleware(ResolveTenant::class)->group(function (): void {
-        Route::get('/staff', [\App\Modules\Foundation\Http\Controllers\StaffController::class, 'index']);
-        Route::post('/staff', [\App\Modules\Foundation\Http\Controllers\StaffController::class, 'store']);
-        Route::delete('/staff/{id}', [\App\Modules\Foundation\Http\Controllers\StaffController::class, 'destroy']);
+        Route::get('/staff', [\App\Modules\Foundation\Http\Controllers\StaffController::class, 'index'])->middleware('permission:staff.view');
+        Route::post('/staff', [\App\Modules\Foundation\Http\Controllers\StaffController::class, 'store'])->middleware('permission:staff.manage');
+        Route::delete('/staff/{id}', [\App\Modules\Foundation\Http\Controllers\StaffController::class, 'destroy'])->middleware('permission:staff.manage');
 
         Route::get('/medicine-categories', [MedicineCategoryController::class, 'index'])->middleware('permission:catalog.view');
         Route::post('/medicine-categories', [MedicineCategoryController::class, 'store'])->middleware('permission:catalog.manage');
