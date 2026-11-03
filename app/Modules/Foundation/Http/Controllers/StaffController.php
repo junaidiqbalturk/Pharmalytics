@@ -8,6 +8,7 @@ use App\Modules\Foundation\Models\Tenant;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\ValidationException;
 use Spatie\Permission\PermissionRegistrar;
 
 class StaffController extends Controller
@@ -44,17 +45,26 @@ class StaffController extends Controller
         ]);
 
         $user = User::query()->where('email', $data['email'])->first();
-        if (! $user) {
-            $user = User::query()->create([
-                'name' => $data['name'],
-                'email' => $data['email'],
-                'password' => Hash::make($data['password']),
+        if ($user) {
+            if ($tenant->users()->whereKey($user->id)->exists()) {
+                throw ValidationException::withMessages([
+                    'email' => ['This user is already a registered staff member of this pharmacy.'],
+                ]);
+            }
+
+            throw ValidationException::withMessages([
+                'email' => ['A user with this email address already exists. Automatic cross-pharmacy attachment is disallowed for security; an invitation must be accepted.'],
             ]);
         }
 
-        if (! $tenant->users()->whereKey($user->id)->exists()) {
-            $tenant->users()->attach($user, ['is_default' => false]);
-        }
+        $user = User::query()->create([
+            'name' => $data['name'],
+            'email' => $data['email'],
+            'password' => Hash::make($data['password']),
+            'email_verified_at' => now(),
+        ]);
+
+        $tenant->users()->attach($user, ['is_default' => false]);
 
         app(PermissionRegistrar::class)->setPermissionsTeamId($tenant->getKey());
         $user->syncRoles([$data['role']]);
