@@ -53,33 +53,52 @@ class StockAdjustmentController extends Controller
             ]);
 
             foreach ($data['items'] as $itemData) {
-                $difference = $itemData['counted_quantity'] - $itemData['system_quantity'];
+                $medicine = $tenant->medicines()->findOrFail($itemData['medicine_id']);
+                $batch = null;
+                $authoritativeSystemQuantity = 0.0;
+
+                if (!empty($itemData['batch_id'])) {
+                    $batch = Batch::query()
+                        ->where('tenant_id', $tenant->id)
+                        ->where('medicine_id', $medicine->id)
+                        ->lockForUpdate()
+                        ->findOrFail($itemData['batch_id']);
+
+                    $authoritativeSystemQuantity = (float) $batch->quantity;
+                } else {
+                    $authoritativeSystemQuantity = (float) Batch::query()
+                        ->where('tenant_id', $tenant->id)
+                        ->where('medicine_id', $medicine->id)
+                        ->lockForUpdate()
+                        ->sum('quantity');
+                }
+
+                $countedQuantity = (float) $itemData['counted_quantity'];
+                $difference = round($countedQuantity - $authoritativeSystemQuantity, 3);
+                $unitCost = (float) ($itemData['unit_cost'] ?? ($batch?->cost_price ?? $medicine->cost_price ?? 0));
 
                 $adjustment->items()->create([
-                    'medicine_id' => $itemData['medicine_id'],
-                    'batch_id' => $itemData['batch_id'] ?? null,
-                    'system_quantity' => $itemData['system_quantity'],
-                    'counted_quantity' => $itemData['counted_quantity'],
+                    'medicine_id' => $medicine->id,
+                    'batch_id' => $batch?->id,
+                    'system_quantity' => $authoritativeSystemQuantity,
+                    'counted_quantity' => $countedQuantity,
                     'difference' => $difference,
-                    'unit_cost' => $itemData['unit_cost'] ?? 0,
+                    'unit_cost' => $unitCost,
                 ]);
 
                 // Update batch if batch_id provided
-                if (!empty($itemData['batch_id'])) {
-                    $batch = Batch::query()->where('tenant_id', $tenant->id)->find($itemData['batch_id']);
-                    if ($batch) {
-                        $batch->update(['quantity' => $itemData['counted_quantity']]);
-                    }
+                if ($batch) {
+                    $batch->update(['quantity' => $countedQuantity]);
                 }
 
                 // Log stock movement
                 StockMovement::query()->create([
                     'tenant_id' => $tenant->id,
-                    'medicine_id' => $itemData['medicine_id'],
-                    'batch_id' => $itemData['batch_id'] ?? null,
+                    'medicine_id' => $medicine->id,
+                    'batch_id' => $batch?->id,
                     'type' => $difference >= 0 ? 'adjustment_in' : 'adjustment_out',
                     'quantity' => abs($difference),
-                    'balance_after' => $itemData['counted_quantity'],
+                    'balance_after' => $countedQuantity,
                     'reference_type' => 'StockAdjustment',
                     'reference_id' => $adjustment->id,
                     'notes' => $data['reason'],
