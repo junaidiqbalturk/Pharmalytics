@@ -99,12 +99,16 @@ class AuthController extends Controller
                 'sales.manage',
                 'accounting.view',
                 'accounting.manage',
+                'staff.view',
+                'staff.manage',
             ])->map(fn (string $permission): Permission => Permission::findOrCreate($permission, 'web'));
             $ownerRole->syncPermissions($permissions);
             $user->assignRole($ownerRole);
 
             return [$user, $tenant];
         });
+
+        event(new \Illuminate\Auth\Events\Registered($user));
 
         $token = $user->createToken($request->string('device_name', 'web')->toString())->plainTextToken;
 
@@ -116,6 +120,7 @@ class AuthController extends Controller
                     'id' => $user->id,
                     'name' => $user->name,
                     'email' => $user->email,
+                    'email_verified_at' => $user->email_verified_at?->toISOString(),
                     'roles' => ['owner'],
                     'permissions' => $user->getAllPermissions()->pluck('name')->values()->all(),
                 ],
@@ -193,5 +198,34 @@ class AuthController extends Controller
                 'tenants' => TenantResource::collection($user->tenants()->orderBy('name')->get())->resolve(),
             ],
         ]);
+    }
+
+    public function verifyEmail(Request $request, int $id, string $hash): JsonResponse
+    {
+        $user = User::query()->findOrFail($id);
+
+        if (! hash_equals((string) $hash, sha1($user->getEmailForVerification()))) {
+            abort(403, 'Invalid or expired email verification link.');
+        }
+
+        if ($user->hasVerifiedEmail()) {
+            return response()->json(['message' => 'Email is already verified.']);
+        }
+
+        $user->markEmailAsVerified();
+        event(new \Illuminate\Auth\Events\Verified($user));
+
+        return response()->json(['message' => 'Email verified successfully.']);
+    }
+
+    public function resendVerificationEmail(Request $request): JsonResponse
+    {
+        if ($request->user()->hasVerifiedEmail()) {
+            return response()->json(['message' => 'Email is already verified.']);
+        }
+
+        $request->user()->sendEmailVerificationNotification();
+
+        return response()->json(['message' => 'Verification notification sent.']);
     }
 }

@@ -59,6 +59,26 @@ class TenantRbacTest extends TestCase
         ])->getJson('/api/v1/purchase-orders');
 
         $procurementResponse->assertStatus(403);
+
+        // 4. Cashier is FORBIDDEN from accessing staff management
+        $staffViewResponse = $this->withHeaders([
+            'Authorization' => "Bearer {$token}",
+            'X-Tenant-ID' => (string) $tenant->id,
+        ])->getJson('/api/v1/staff');
+
+        $staffViewResponse->assertStatus(403);
+
+        $staffCreateResponse = $this->withHeaders([
+            'Authorization' => "Bearer {$token}",
+            'X-Tenant-ID' => (string) $tenant->id,
+        ])->postJson('/api/v1/staff', [
+            'name' => 'Unauthorized Admin',
+            'email' => 'unauth@citycare.com',
+            'password' => 'HackedPassword123!',
+            'role' => 'admin',
+        ]);
+
+        $staffCreateResponse->assertStatus(403);
     }
 
     public function test_tenant_staff_endpoint_allows_owner_to_manage_tenant_cashiers(): void
@@ -105,5 +125,19 @@ class TenantRbacTest extends TestCase
 
         $staffListResponse->assertStatus(200)
             ->assertJsonCount(2, 'data');
+
+        // Attempting to attach existing user across tenants is blocked with 422
+        $existingUserResponse = $this->withHeaders([
+            'Authorization' => "Bearer {$token}",
+            'X-Tenant-ID' => (string) $tenant->id,
+        ])->postJson('/api/v1/staff', [
+            'name' => 'Existing User',
+            'email' => 'usman@alphapharma.com',
+            'password' => 'SomePassword123!',
+            'role' => 'pharmacist',
+        ]);
+
+        $existingUserResponse->assertStatus(422)
+            ->assertJsonValidationErrors('email');
     }
 }
