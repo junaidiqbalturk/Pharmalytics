@@ -117,8 +117,25 @@ class PosController extends Controller
                     ]);
                 }
 
-                $unitPrice = (float) $item['unit_price'];
-                $itemGross = round($qtyNeeded * $unitPrice, 2);
+                // Authoritative price calculation based on database records
+                $batchSellingPrice = (float) ($batch->selling_price > 0 ? $batch->selling_price : ($medicine->selling_price ?? 0));
+                $pricePerStrip = (float) ($medicine->price_per_strip > 0 ? $medicine->price_per_strip : $batchSellingPrice);
+                $pricePerUnit = (float) ($medicine->price_per_unit > 0 ? $medicine->price_per_unit : round($pricePerStrip / max(1, $tabletsPerStrip), 2));
+                $pricePerBox = (float) ($medicine->price_per_box > 0 ? $medicine->price_per_box : round($pricePerStrip * max(1, $stripsPerBox), 2));
+
+                if ($unitType === 'unit') {
+                    $authoritativeUnitPrice = $pricePerUnit;
+                } elseif ($unitType === 'box') {
+                    $authoritativeUnitPrice = $pricePerBox;
+                } else {
+                    $authoritativeUnitPrice = $pricePerStrip;
+                }
+
+                if ($authoritativeUnitPrice <= 0 && isset($item['unit_price'])) {
+                    $authoritativeUnitPrice = (float) $item['unit_price'];
+                }
+
+                $itemGross = round($qtyNeeded * $authoritativeUnitPrice, 2);
                 $itemDiscount = (float) ($item['discount'] ?? 0);
                 if ($itemDiscount < 0 || $itemDiscount > $itemGross) {
                     throw ValidationException::withMessages([
@@ -136,7 +153,7 @@ class PosController extends Controller
                     'unit_type' => $unitType,
                     'multiplier' => $multiplier,
                     'stock_deduction' => $stockDeduction,
-                    'unit_price' => $unitPrice,
+                    'unit_price' => $authoritativeUnitPrice,
                     'unit_cost' => (float) ($batch->cost_price ?? $medicine->cost_price ?? 0),
                     'discount' => $itemDiscount,
                     'subtotal' => $itemSubtotal,
