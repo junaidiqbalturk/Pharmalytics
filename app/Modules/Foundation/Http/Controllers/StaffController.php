@@ -44,6 +44,16 @@ class StaffController extends Controller
             'role' => ['required', 'in:admin,pharmacist,cashier'],
         ]);
 
+        // Restrict Admin role creation strictly to the Pharmacy Owner
+        if ($data['role'] === 'admin') {
+            app(PermissionRegistrar::class)->setPermissionsTeamId($tenant->getKey());
+            if (! $request->user()?->hasRole('owner')) {
+                return response()->json([
+                    'message' => 'Only the pharmacy owner can create or assign Administrator accounts.',
+                ], 403);
+            }
+        }
+
         $user = User::query()->where('email', $data['email'])->first();
         if ($user) {
             if ($tenant->users()->whereKey($user->id)->exists()) {
