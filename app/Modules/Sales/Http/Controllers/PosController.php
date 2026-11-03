@@ -53,22 +53,112 @@ class PosController extends Controller
 
         $sale = DB::transaction(function () use ($tenant, $user, $data): Sale {
             $invoiceNumber = 'INV-'.strtoupper(Str::random(8));
+
+            $customerId = null;
+            if (!empty($data['customer_id'])) {
+                $customer = \App\Modules\MasterData\Models\Customer::query()
+                    ->where('tenant_id', $tenant->id)
+                    ->findOrFail($data['customer_id']);
+                $customerId = $customer->id;
+            }
+
+            // 1. Resolve and validate all items, batches, and authoritative prices
+            $processedItems = [];
             $subtotal = 0;
 
             foreach ($data['items'] as $item) {
-                $itemSubtotal = ($item['quantity'] * $item['unit_price']) - ($item['discount'] ?? 0);
+                $medicine = $tenant->medicines()->findOrFail($item['medicine_id']);
+                $qtyNeeded = (float) $item['quantity'];
+                $unitType = $item['unit_type'] ?? 'strip';
+
+                $tabletsPerStrip = $medicine->tablets_per_strip ?: 10;
+                $stripsPerBox = $medicine->strips_per_box ?: 10;
+
+                $stockDeduction = $qtyNeeded;
+                $multiplier = 1.0;
+                if ($unitType === 'unit') {
+                    $stockDeduction = round($qtyNeeded / max(1, $tabletsPerStrip), 3);
+                    $multiplier = round(1.0 / max(1, $tabletsPerStrip), 3);
+                } elseif ($unitType === 'box') {
+                    $stockDeduction = round($qtyNeeded * max(1, $stripsPerBox), 3);
+                    $multiplier = (float) $stripsPerBox;
+                }
+
+                // Strictly select or FEFO match batch with pessimistic lock
+                if (!empty($item['batch_id'])) {
+                    $batch = Batch::query()
+                        ->where('tenant_id', $tenant->id)
+                        ->where('medicine_id', $medicine->id)
+                        ->where('is_active', true)
+                        ->where('expiry_date', '>=', now()->toDateString())
+                        ->lockForUpdate()
+                        ->find($item['batch_id']);
+                } else {
+                    $batch = Batch::query()
+                        ->where('tenant_id', $tenant->id)
+                        ->where('medicine_id', $medicine->id)
+                        ->where('is_active', true)
+                        ->where('quantity', '>', 0)
+                        ->where('expiry_date', '>=', now()->toDateString())
+                        ->orderBy('expiry_date', 'asc')
+                        ->lockForUpdate()
+                        ->first();
+                }
+
+                if (! $batch) {
+                    throw ValidationException::withMessages([
+                        'items' => ["No valid, active, non-expired batch found with stock for {$medicine->name}."],
+                    ]);
+                }
+
+                if ($batch->quantity < $stockDeduction) {
+                    throw ValidationException::withMessages([
+                        'items' => ["Insufficient stock for batch {$batch->batch_number} ({$medicine->name}). Available: {$batch->quantity}, requested: {$stockDeduction}."],
+                    ]);
+                }
+
+                $unitPrice = (float) $item['unit_price'];
+                $itemGross = round($qtyNeeded * $unitPrice, 2);
+                $itemDiscount = (float) ($item['discount'] ?? 0);
+                if ($itemDiscount < 0 || $itemDiscount > $itemGross) {
+                    throw ValidationException::withMessages([
+                        'items' => ["Discount for {$medicine->name} cannot exceed the item total of {$itemGross}."],
+                    ]);
+                }
+
+                $itemSubtotal = $itemGross - $itemDiscount;
                 $subtotal += $itemSubtotal;
+
+                $processedItems[] = [
+                    'medicine' => $medicine,
+                    'batch' => $batch,
+                    'quantity' => $qtyNeeded,
+                    'unit_type' => $unitType,
+                    'multiplier' => $multiplier,
+                    'stock_deduction' => $stockDeduction,
+                    'unit_price' => $unitPrice,
+                    'unit_cost' => (float) ($batch->cost_price ?? $medicine->cost_price ?? 0),
+                    'discount' => $itemDiscount,
+                    'subtotal' => $itemSubtotal,
+                ];
             }
 
-            $discountAmount = $data['discount_amount'] ?? 0;
-            $taxAmount = $data['tax_amount'] ?? 0;
-            $totalAmount = max(0, $subtotal - $discountAmount + $taxAmount);
-            $paidAmount = $data['paid_amount'];
-            $changeAmount = max(0, $paidAmount - $totalAmount);
+            $discountAmount = min($subtotal, (float) ($data['discount_amount'] ?? 0));
+            $taxAmount = max(0, (float) ($data['tax_amount'] ?? 0));
+            $totalAmount = max(0, round($subtotal - $discountAmount + $taxAmount, 2));
+            $paidAmount = (float) $data['paid_amount'];
+
+            if ($paidAmount < $totalAmount && $data['payment_method'] !== 'credit') {
+                throw ValidationException::withMessages([
+                    'paid_amount' => ["Paid amount ({$paidAmount}) cannot be less than total amount ({$totalAmount})."],
+                ]);
+            }
+
+            $changeAmount = max(0, round($paidAmount - $totalAmount, 2));
 
             $sale = Sale::query()->create([
                 'tenant_id' => $tenant->id,
-                'customer_id' => $data['customer_id'] ?? null,
+                'customer_id' => $customerId,
                 'invoice_number' => $invoiceNumber,
                 'subtotal' => $subtotal,
                 'discount_amount' => $discountAmount,
@@ -81,80 +171,38 @@ class PosController extends Controller
                 'served_by' => $user?->id,
             ]);
 
-            foreach ($data['items'] as $item) {
-                $qtyNeeded = (float) $item['quantity'];
-                $unitType = $item['unit_type'] ?? 'strip';
-
-                $medicine = Medicine::find($item['medicine_id']);
-                $tabletsPerStrip = $medicine?->tablets_per_strip ?: 10;
-                $stripsPerBox = $medicine?->strips_per_box ?: 10;
-
-                $stockDeduction = $qtyNeeded;
-                $multiplier = 1.0;
-                if ($unitType === 'unit') {
-                    $stockDeduction = round($qtyNeeded / max(1, $tabletsPerStrip), 3);
-                    $multiplier = round(1.0 / max(1, $tabletsPerStrip), 3);
-                } elseif ($unitType === 'box') {
-                    $stockDeduction = round($qtyNeeded * max(1, $stripsPerBox), 3);
-                    $multiplier = (float) $stripsPerBox;
-                }
-
-                // Select or FEFO match batch
-                if (!empty($item['batch_id'])) {
-                    $batch = Batch::query()
-                        ->where('tenant_id', $tenant->id)
-                        ->where('medicine_id', $item['medicine_id'])
-                        ->lockForUpdate()
-                        ->find($item['batch_id']);
-                } else {
-                    $batch = Batch::query()
-                        ->where('tenant_id', $tenant->id)
-                        ->where('medicine_id', $item['medicine_id'])
-                        ->where('is_active', true)
-                        ->where('quantity', '>', 0)
-                        ->where('expiry_date', '>=', now()->toDateString())
-                        ->orderBy('expiry_date', 'asc')
-                        ->lockForUpdate()
-                        ->first();
-                }
-
-                if ($batch && $batch->quantity < $stockDeduction) {
-                    throw ValidationException::withMessages([
-                        'items' => ["Insufficient stock for batch {$batch->batch_number}. Available: {$batch->quantity}, requested: {$stockDeduction}"],
-                    ]);
-                }
-
-                $unitCost = $batch?->cost_price ?? 0;
-                $itemSubtotal = ($item['quantity'] * $item['unit_price']) - ($item['discount'] ?? 0);
+            foreach ($processedItems as $pItem) {
+                /** @var Batch $batch */
+                $batch = $pItem['batch'];
+                /** @var Medicine $medicine */
+                $medicine = $pItem['medicine'];
 
                 $sale->items()->create([
-                    'medicine_id' => $item['medicine_id'],
-                    'batch_id' => $batch?->id,
-                    'quantity' => $qtyNeeded,
-                    'unit_type' => $unitType,
-                    'units_multiplier' => $multiplier,
-                    'unit_price' => $item['unit_price'],
-                    'unit_cost' => $unitCost,
-                    'discount' => $item['discount'] ?? 0,
-                    'subtotal' => $itemSubtotal,
+                    'medicine_id' => $medicine->id,
+                    'batch_id' => $batch->id,
+                    'quantity' => $pItem['quantity'],
+                    'unit_type' => $pItem['unit_type'],
+                    'units_multiplier' => $pItem['multiplier'],
+                    'unit_price' => $pItem['unit_price'],
+                    'unit_cost' => $pItem['unit_cost'],
+                    'discount' => $pItem['discount'],
+                    'subtotal' => $pItem['subtotal'],
                 ]);
 
-                if ($batch) {
-                    $batch->decrement('quantity', $stockDeduction);
+                $batch->decrement('quantity', $pItem['stock_deduction']);
 
-                    StockMovement::query()->create([
-                        'tenant_id' => $tenant->id,
-                        'medicine_id' => $item['medicine_id'],
-                        'batch_id' => $batch->id,
-                        'type' => 'sale',
-                        'quantity' => $stockDeduction,
-                        'balance_after' => $batch->quantity,
-                        'reference_type' => 'Sale',
-                        'reference_id' => $sale->id,
-                        'notes' => 'POS Sale '.$invoiceNumber,
-                        'created_by' => $user?->id,
-                    ]);
-                }
+                StockMovement::query()->create([
+                    'tenant_id' => $tenant->id,
+                    'medicine_id' => $medicine->id,
+                    'batch_id' => $batch->id,
+                    'type' => 'sale',
+                    'quantity' => $pItem['stock_deduction'],
+                    'balance_after' => $batch->quantity,
+                    'reference_type' => 'Sale',
+                    'reference_id' => $sale->id,
+                    'notes' => 'POS Sale '.$invoiceNumber,
+                    'created_by' => $user?->id,
+                ]);
             }
 
             // Record payment
