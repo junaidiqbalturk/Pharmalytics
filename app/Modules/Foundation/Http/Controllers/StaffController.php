@@ -86,6 +86,10 @@ class StaffController extends Controller
         $tenant = $request->attributes->get('tenant');
         $user = $tenant->users()->findOrFail($id);
 
+        if ($user->id === $request->user()?->id) {
+            return response()->json(['message' => 'Cannot remove your own account from the pharmacy.'], 422);
+        }
+
         app(PermissionRegistrar::class)->setPermissionsTeamId($tenant->getKey());
         if ($user->hasRole('owner')) {
             return response()->json(['message' => 'Cannot remove tenant owner.'], 422);
