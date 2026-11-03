@@ -65,6 +65,8 @@ class PosController extends Controller
             // 1. Resolve and validate all items, batches, and authoritative prices
             $processedItems = [];
             $subtotal = 0;
+            $totalGrossAmount = 0.0;
+            $totalLineDiscounts = 0.0;
 
             foreach ($data['items'] as $item) {
                 $medicine = $tenant->medicines()->findOrFail($item['medicine_id']);
@@ -166,6 +168,8 @@ class PosController extends Controller
 
                 $itemSubtotal = $itemGross - $itemDiscount;
                 $subtotal += $itemSubtotal;
+                $totalGrossAmount += $itemGross;
+                $totalLineDiscounts += $itemDiscount;
 
                 $processedItems[] = [
                     'medicine' => $medicine,
@@ -182,12 +186,26 @@ class PosController extends Controller
             }
 
             $discountAmount = min($subtotal, (float) ($data['discount_amount'] ?? 0));
-            if (! ($user?->hasRole(['owner', 'admin'])) && $subtotal > 0) {
-                $maxDiscountRate = (float) ($tenant->max_discount_percentage ?? 20.00);
-                $totalDiscountPercentage = round(($discountAmount / $subtotal) * 100, 2);
-                if ($totalDiscountPercentage > $maxDiscountRate) {
+            $isManager = $user?->hasRole(['owner', 'admin']);
+            $maxDiscountRate = (float) ($tenant->max_discount_percentage ?? 20.00);
+
+            if (! $isManager && $totalGrossAmount > 0) {
+                // 1. Check order discount percentage on remaining subtotal
+                if ($subtotal > 0) {
+                    $orderDiscountPercentage = round(($discountAmount / $subtotal) * 100, 2);
+                    if ($orderDiscountPercentage > $maxDiscountRate) {
+                        throw ValidationException::withMessages([
+                            'discount_amount' => ["Order discount of {$orderDiscountPercentage}% exceeds the pharmacy policy limit ({$maxDiscountRate}%). Manager override required."],
+                        ]);
+                    }
+                }
+
+                // 2. Anti-discount stacking: check combined effective discount across both line and order discounts
+                $totalCombinedDiscount = $totalLineDiscounts + $discountAmount;
+                $combinedDiscountPercentage = round(($totalCombinedDiscount / $totalGrossAmount) * 100, 2);
+                if ($combinedDiscountPercentage > $maxDiscountRate) {
                     throw ValidationException::withMessages([
-                        'discount_amount' => ["Order discount of {$totalDiscountPercentage}% exceeds the pharmacy policy limit ({$maxDiscountRate}%). Manager override required."],
+                        'discount_amount' => ["Combined total discount of {$combinedDiscountPercentage}% exceeds the pharmacy policy limit ({$maxDiscountRate}%). Manager override required."],
                     ]);
                 }
             }
