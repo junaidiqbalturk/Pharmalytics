@@ -24,6 +24,8 @@ return new class extends Migration
             'sales.manage',
             'accounting.view',
             'accounting.manage',
+            'staff.view',
+            'staff.manage',
         ];
 
         foreach ($allPermissions as $perm) {
