@@ -27,7 +27,7 @@ class StoreStockAdjustmentRequest extends FormRequest
                 Rule::exists('medicines', 'id')->where('tenant_id', $tenantId),
             ],
             'items.*.batch_id' => [
-                'nullable',
+                'required',
                 'integer',
                 Rule::exists('batches', 'id')->where('tenant_id', $tenantId),
             ],
