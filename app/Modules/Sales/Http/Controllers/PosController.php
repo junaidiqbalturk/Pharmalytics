@@ -131,8 +131,17 @@ class PosController extends Controller
                     $authoritativeUnitPrice = $pricePerStrip;
                 }
 
-                if ($authoritativeUnitPrice <= 0 && isset($item['unit_price'])) {
-                    $authoritativeUnitPrice = (float) $item['unit_price'];
+                if ($authoritativeUnitPrice <= 0) {
+                    $canCustomPrice = (bool) ($tenant->allow_custom_pricing ?? false)
+                        && ($user?->hasRole(['owner', 'admin']) || $user?->can('sales.manage'));
+
+                    if ($canCustomPrice && isset($item['unit_price']) && (float) $item['unit_price'] > 0) {
+                        $authoritativeUnitPrice = (float) $item['unit_price'];
+                    } else {
+                        throw ValidationException::withMessages([
+                            'items' => ["Medicine '{$medicine->name}' does not have a valid selling price configured in catalog. Dispensing unpriced items is restricted by pharmacy policy."],
+                        ]);
+                    }
                 }
 
                 $itemGross = round($qtyNeeded * $authoritativeUnitPrice, 2);
@@ -141,6 +150,18 @@ class PosController extends Controller
                     throw ValidationException::withMessages([
                         'items' => ["Discount for {$medicine->name} cannot exceed the item total of {$itemGross}."],
                     ]);
+                }
+
+                $maxDiscountRate = (float) ($tenant->max_discount_percentage ?? 20.00);
+                $isManager = $user?->hasRole(['owner', 'admin']);
+
+                if (! $isManager && $itemGross > 0) {
+                    $lineDiscountPercentage = round(($itemDiscount / $itemGross) * 100, 2);
+                    if ($lineDiscountPercentage > $maxDiscountRate) {
+                        throw ValidationException::withMessages([
+                            'items' => ["Line discount of {$lineDiscountPercentage}% for {$medicine->name} exceeds the pharmacy policy limit ({$maxDiscountRate}%). Manager override required."],
+                        ]);
+                    }
                 }
 
                 $itemSubtotal = $itemGross - $itemDiscount;
@@ -161,7 +182,24 @@ class PosController extends Controller
             }
 
             $discountAmount = min($subtotal, (float) ($data['discount_amount'] ?? 0));
-            $taxAmount = max(0, (float) ($data['tax_amount'] ?? 0));
+            if (! ($user?->hasRole(['owner', 'admin'])) && $subtotal > 0) {
+                $maxDiscountRate = (float) ($tenant->max_discount_percentage ?? 20.00);
+                $totalDiscountPercentage = round(($discountAmount / $subtotal) * 100, 2);
+                if ($totalDiscountPercentage > $maxDiscountRate) {
+                    throw ValidationException::withMessages([
+                        'discount_amount' => ["Order discount of {$totalDiscountPercentage}% exceeds the pharmacy policy limit ({$maxDiscountRate}%). Manager override required."],
+                    ]);
+                }
+            }
+
+            // Authoritative server-side tax calculation based on tenant policy
+            $taxRate = (float) ($tenant->default_tax_rate ?? 0.00);
+            if ($taxRate > 0) {
+                $taxableAmount = max(0, $subtotal - $discountAmount);
+                $taxAmount = round($taxableAmount * ($taxRate / 100), 2);
+            } else {
+                $taxAmount = 0.00;
+            }
             $totalAmount = max(0, round($subtotal - $discountAmount + $taxAmount, 2));
             $paidAmount = (float) $data['paid_amount'];
 

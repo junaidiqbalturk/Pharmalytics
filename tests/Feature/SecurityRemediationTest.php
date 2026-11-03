@@ -300,4 +300,206 @@ class SecurityRemediationTest extends TestCase
 
         $this->assertTrue($user->fresh()->hasVerifiedEmail());
     }
+
+    public function test_pos_checkout_rejects_unpriced_inventory_by_default(): void
+    {
+        ['tenant' => $tenant, 'headers' => $headers] = $this->createTenantWithOwner('Unpriced Pharma');
+
+        $medicine = Medicine::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Sample Syringe',
+            'sku' => 'SYR-01',
+            'selling_price' => 0.00, // Unpriced!
+            'is_active' => true,
+        ]);
+
+        $batch = Batch::create([
+            'tenant_id' => $tenant->id,
+            'medicine_id' => $medicine->id,
+            'batch_number' => 'SYR-BATCH-1',
+            'expiry_date' => now()->addYear()->toDateString(),
+            'quantity' => 10,
+            'selling_price' => 0.00, // Unpriced!
+            'is_active' => true,
+        ]);
+
+        // Attempt checkout with client-supplied price on an unpriced item
+        $response = $this->postJson('/api/v1/pos/checkout', [
+            'paid_amount' => 50.00,
+            'payment_method' => 'cash',
+            'items' => [
+                [
+                    'medicine_id' => $medicine->id,
+                    'batch_id' => $batch->id,
+                    'quantity' => 1,
+                    'unit_price' => 50.00,
+                ],
+            ],
+        ], $headers);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors('items');
+    }
+
+    public function test_pos_checkout_allows_custom_pricing_when_explicitly_configured_by_owner(): void
+    {
+        ['tenant' => $tenant, 'headers' => $headers] = $this->createTenantWithOwner('Custom Price Pharma');
+
+        // Owner configures policy to allow custom pricing
+        $tenant->update(['allow_custom_pricing' => true]);
+
+        $medicine = Medicine::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Compounded Ointment',
+            'sku' => 'COMP-OINT',
+            'selling_price' => 0.00,
+            'is_active' => true,
+        ]);
+
+        $batch = Batch::create([
+            'tenant_id' => $tenant->id,
+            'medicine_id' => $medicine->id,
+            'batch_number' => 'COMP-01',
+            'expiry_date' => now()->addYear()->toDateString(),
+            'quantity' => 10,
+            'selling_price' => 0.00,
+            'is_active' => true,
+        ]);
+
+        $response = $this->postJson('/api/v1/pos/checkout', [
+            'paid_amount' => 120.00,
+            'payment_method' => 'cash',
+            'items' => [
+                [
+                    'medicine_id' => $medicine->id,
+                    'batch_id' => $batch->id,
+                    'quantity' => 1,
+                    'unit_price' => 120.00,
+                ],
+            ],
+        ], $headers);
+
+        $response->assertStatus(201);
+        $this->assertEquals('120.00', $response->json('data.total_amount'));
+    }
+
+    public function test_cashier_discount_capped_by_pharmacy_policy(): void
+    {
+        ['tenant' => $tenant] = $this->createTenantWithOwner('Discount Policy Pharma');
+        $tenant->update(['max_discount_percentage' => 15.00]); // Max 15% discount limit
+
+        $cashier = User::create([
+            'name' => 'Cashier Discount Test',
+            'email' => 'cashier.disc@pharmalytics.test',
+            'password' => Hash::make('Cashier123!'),
+        ]);
+        $tenant->users()->attach($cashier, ['is_default' => true]);
+        app(PermissionRegistrar::class)->setPermissionsTeamId($tenant->id);
+        $cashier->syncRoles(['cashier']);
+
+        $cashierHeaders = [
+            'Authorization' => 'Bearer '.$cashier->createToken('cashier-device')->plainTextToken,
+            'X-Tenant-ID' => (string) $tenant->id,
+        ];
+
+        $medicine = Medicine::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Expensive Antibiotic',
+            'sku' => 'EXP-ANTI',
+            'selling_price' => 100.00,
+            'is_active' => true,
+        ]);
+
+        $batch = Batch::create([
+            'tenant_id' => $tenant->id,
+            'medicine_id' => $medicine->id,
+            'batch_number' => 'EXP-01',
+            'expiry_date' => now()->addYear()->toDateString(),
+            'quantity' => 10,
+            'selling_price' => 100.00,
+            'is_active' => true,
+        ]);
+
+        // Cashier attempts 50% discount (allowed limit is 15%)
+        $response = $this->postJson('/api/v1/pos/checkout', [
+            'paid_amount' => 50.00,
+            'payment_method' => 'cash',
+            'items' => [
+                [
+                    'medicine_id' => $medicine->id,
+                    'batch_id' => $batch->id,
+                    'quantity' => 1,
+                    'discount' => 50.00, // 50% discount
+                ],
+            ],
+        ], $cashierHeaders);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors('items');
+    }
+
+    public function test_server_side_tax_calculation_enforced(): void
+    {
+        ['tenant' => $tenant, 'headers' => $headers] = $this->createTenantWithOwner('Tax Pharma');
+        $tenant->update(['default_tax_rate' => 10.00]); // 10% tax rate
+
+        $medicine = Medicine::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Taxable Vitamin',
+            'sku' => 'TAX-VIT',
+            'selling_price' => 100.00,
+            'is_active' => true,
+        ]);
+
+        $batch = Batch::create([
+            'tenant_id' => $tenant->id,
+            'medicine_id' => $medicine->id,
+            'batch_number' => 'VIT-01',
+            'expiry_date' => now()->addYear()->toDateString(),
+            'quantity' => 10,
+            'selling_price' => 100.00,
+            'is_active' => true,
+        ]);
+
+        // Client attempts to pass tax_amount: 0 in request
+        $response = $this->postJson('/api/v1/pos/checkout', [
+            'tax_amount' => 0.00, // Client tries to evade tax
+            'paid_amount' => 110.00,
+            'payment_method' => 'cash',
+            'items' => [
+                [
+                    'medicine_id' => $medicine->id,
+                    'batch_id' => $batch->id,
+                    'quantity' => 1,
+                ],
+            ],
+        ], $headers);
+
+        $response->assertStatus(201);
+        $sale = $response->json('data');
+
+        // Backend must calculate 10% tax (10.00), making total 110.00!
+        $this->assertEquals('10.00', $sale['tax_amount']);
+        $this->assertEquals('110.00', $sale['total_amount']);
+    }
+
+    public function test_tenant_settings_can_only_be_updated_by_manager(): void
+    {
+        ['tenant' => $tenant, 'headers' => $ownerHeaders] = $this->createTenantWithOwner('Settings Pharma');
+
+        // Owner can read and update settings
+        $getRes = $this->getJson('/api/v1/tenant/settings', $ownerHeaders);
+        $getRes->assertStatus(200);
+
+        $putRes = $this->putJson('/api/v1/tenant/settings', [
+            'allow_custom_pricing' => true,
+            'max_discount_percentage' => 25.00,
+            'default_tax_rate' => 15.00,
+        ], $ownerHeaders);
+
+        $putRes->assertStatus(200);
+        $this->assertTrue($putRes->json('data.allow_custom_pricing'));
+        $this->assertEquals('25.00', $putRes->json('data.max_discount_percentage'));
+        $this->assertEquals('15.00', $putRes->json('data.default_tax_rate'));
+    }
 }

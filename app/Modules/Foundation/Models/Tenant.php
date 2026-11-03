@@ -13,7 +13,26 @@ class Tenant extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['name', 'slug', 'currency_code', 'country_code', 'country', 'timezone'];
+    protected $fillable = [
+        'name',
+        'slug',
+        'currency_code',
+        'country_code',
+        'country',
+        'timezone',
+        'allow_custom_pricing',
+        'max_discount_percentage',
+        'default_tax_rate',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'allow_custom_pricing' => 'boolean',
+            'max_discount_percentage' => 'decimal:2',
+            'default_tax_rate' => 'decimal:2',
+        ];
+    }
 
     /**
      * @return BelongsToMany<User, $this>

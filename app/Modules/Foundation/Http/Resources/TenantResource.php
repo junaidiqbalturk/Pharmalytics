@@ -20,6 +20,9 @@ class TenantResource extends JsonResource
             'country_code' => $this->country_code ?? 'PK',
             'country' => $this->country ?? 'Pakistan',
             'timezone' => $this->timezone,
+            'allow_custom_pricing' => (bool) ($this->allow_custom_pricing ?? false),
+            'max_discount_percentage' => (string) ($this->max_discount_percentage ?? '20.00'),
+            'default_tax_rate' => (string) ($this->default_tax_rate ?? '0.00'),
         ];
     }
 }

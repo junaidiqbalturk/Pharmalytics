@@ -25,6 +25,9 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/tenants', [TenantController::class, 'index']);
 
     Route::middleware(ResolveTenant::class)->group(function (): void {
+        Route::get('/tenant/settings', [TenantController::class, 'showSettings'])->middleware('permission:staff.view');
+        Route::put('/tenant/settings', [TenantController::class, 'updateSettings'])->middleware('permission:staff.manage');
+
         Route::get('/staff', [\App\Modules\Foundation\Http\Controllers\StaffController::class, 'index'])->middleware('permission:staff.view');
         Route::post('/staff', [\App\Modules\Foundation\Http\Controllers\StaffController::class, 'store'])->middleware('permission:staff.manage');
         Route::delete('/staff/{id}', [\App\Modules\Foundation\Http\Controllers\StaffController::class, 'destroy'])->middleware('permission:staff.manage');
