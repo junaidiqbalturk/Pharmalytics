@@ -9,4 +9,5 @@ Route::middleware(['auth:sanctum', ResolveTenant::class])->prefix('owner')->grou
     Route::get('/sales-summary', [OwnerDashboardController::class, 'salesSummary']);
     Route::get('/inventory-summary', [OwnerDashboardController::class, 'inventorySummary']);
     Route::get('/financial-summary', [OwnerDashboardController::class, 'financialSummary']);
+    Route::get('/alerts', [OwnerDashboardController::class, 'alerts']);
 });

@@ -99,6 +99,23 @@ class OwnerDashboardController extends Controller
     }
 
     /**
+     * Module 6: Business Alerts
+     */
+    #[HeaderParameter('X-Tenant-ID', 'Selected pharmacy workspace ID.', true, type: 'integer')]
+    public function alerts(Request $request): JsonResponse
+    {
+        /** @var Tenant $tenant */
+        $tenant = $request->attributes->get('tenant');
+        $this->ensureOwnerAccess($request, $tenant);
+
+        $data = $this->analyticsService->getAlerts($tenant);
+
+        return response()->json([
+            'data' => $data,
+        ]);
+    }
+
+    /**
      * Enforce owner authorization boundary.
      */
     protected function ensureOwnerAccess(Request $request, Tenant $tenant): void
@@ -109,6 +126,7 @@ class OwnerDashboardController extends Controller
             abort(401, 'Unauthenticated.');
         }
 
+        // Spatie team check for 'owner' or 'admin' role
         app(\Spatie\Permission\PermissionRegistrar::class)->setPermissionsTeamId($tenant->id);
 
         if (! $user->hasRole(['owner', 'admin'])) {

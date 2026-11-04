@@ -10,6 +10,7 @@ use App\Modules\Procurement\Models\PurchaseOrder;
 use App\Modules\Sales\Models\Sale;
 use App\Modules\Sales\Models\SaleItem;
 use Carbon\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class OwnerAnalyticsService
@@ -274,7 +275,7 @@ class OwnerAnalyticsService
                 'items_sold' => (string) round((float) $row->items_sold, 2),
             ]);
 
-        // Daily Trend within the Period
+        // Daily Trend within the Period (supports SQLite and PostgreSQL DATE cast)
         $driver = DB::connection()->getDriverName();
         $dateExpression = $driver === 'sqlite' ? "strftime('%Y-%m-%d', created_at)" : 'DATE(created_at)';
 
@@ -477,7 +478,7 @@ class OwnerAnalyticsService
             ->join('chart_of_accounts', 'chart_of_accounts.id', '=', 'journal_entry_items.chart_of_account_id')
             ->where('journal_entries.tenant_id', $tenant->id)
             ->where('chart_of_accounts.type', 'expense')
-            ->where('chart_of_accounts.code', '!=', '5010')
+            ->where('chart_of_accounts.code', '!=', '5010') // exclude COGS
             ->whereBetween('journal_entries.date', [$start->toDateString(), $end->toDateString()])
             ->selectRaw("chart_of_accounts.code, chart_of_accounts.name, SUM(CASE WHEN journal_entry_items.type = 'debit' THEN journal_entry_items.amount ELSE -journal_entry_items.amount END) as balance")
             ->groupBy('chart_of_accounts.code', 'chart_of_accounts.name')
@@ -500,7 +501,7 @@ class OwnerAnalyticsService
         $netProfit = round($grossProfit - $totalExpenses, 2);
         $netMargin = $netSales > 0 ? round(($netProfit / $netSales) * 100, 2) : 0.0;
 
-        // 4. Balance Sheet Quick-Look
+        // 4. Balance Sheet Quick-Look (Asset, Liability, Equity snapshots)
         $cashInHand = $this->getAccountBalanceByCode($tenant, '1010');
         $bankBalance = $this->getAccountBalanceByCode($tenant, '1020');
         $receivables = $this->getAccountBalanceByCode($tenant, '1100');
@@ -538,14 +539,16 @@ class OwnerAnalyticsService
     }
 
     /**
-     * Module 6 snippet for dashboard alerts.
+     * Module 6: Business Alerts & Attention Feeds.
      */
     public function getAlerts(Tenant $tenant): array
     {
         $tz = $tenant->timezone ?: 'UTC';
         $today = Carbon::now($tz)->toDateString();
+        $thirtyDays = Carbon::now($tz)->addDays(30)->toDateString();
         $alerts = [];
 
+        // 1. Out of stock alert
         $outOfStockCount = Medicine::query()
             ->where('tenant_id', $tenant->id)
             ->where('is_active', true)
@@ -565,6 +568,93 @@ class OwnerAnalyticsService
                 'message' => "{$outOfStockCount} active medicines currently have zero stock in inventory.",
                 'count' => $outOfStockCount,
                 'action_route' => '/inventory',
+            ];
+        }
+
+        // 2. Low stock alert
+        $lowStockCount = 0;
+        $medicines = Medicine::query()
+            ->where('tenant_id', $tenant->id)
+            ->where('is_active', true)
+            ->with(['batches' => fn ($q) => $q->where('is_active', true)->where('expiry_date', '>=', $today)])
+            ->get();
+
+        foreach ($medicines as $m) {
+            $stock = (float) $m->batches->sum('quantity');
+            $reorder = (float) ($m->reorder_level ?? 10);
+            if ($stock > 0 && $stock <= $reorder) {
+                $lowStockCount++;
+            }
+        }
+
+        if ($lowStockCount > 0) {
+            $alerts[] = [
+                'id' => 'alert-stock-low',
+                'type' => 'low_stock',
+                'severity' => 'warning',
+                'title' => 'Low Stock Alert',
+                'message' => "{$lowStockCount} medicines have reached or fallen below their reorder levels.",
+                'count' => $lowStockCount,
+                'action_route' => '/inventory',
+            ];
+        }
+
+        // 3. Expired batches alert
+        $expiredCount = Batch::query()
+            ->where('tenant_id', $tenant->id)
+            ->where('is_active', true)
+            ->where('quantity', '>', 0)
+            ->where('expiry_date', '<', $today)
+            ->count();
+
+        if ($expiredCount > 0) {
+            $alerts[] = [
+                'id' => 'alert-expiry-expired',
+                'type' => 'expired_stock',
+                'severity' => 'critical',
+                'title' => 'Expired Stock on Shelves',
+                'message' => "{$expiredCount} batches have expired and should be removed from dispensing.",
+                'count' => $expiredCount,
+                'action_route' => '/inventory',
+            ];
+        }
+
+        // 4. Near expiry batches alert
+        $nearExpiryCount = Batch::query()
+            ->where('tenant_id', $tenant->id)
+            ->where('is_active', true)
+            ->where('quantity', '>', 0)
+            ->whereBetween('expiry_date', [$today, $thirtyDays])
+            ->count();
+
+        if ($nearExpiryCount > 0) {
+            $alerts[] = [
+                'id' => 'alert-expiry-soon',
+                'type' => 'near_expiry',
+                'severity' => 'warning',
+                'title' => 'Batches Nearing Expiry',
+                'message' => "{$nearExpiryCount} batches will expire within the next 30 days.",
+                'count' => $nearExpiryCount,
+                'action_route' => '/inventory',
+            ];
+        }
+
+        // 5. Pending Purchase Orders alert
+        $pendingPos = PurchaseOrder::query()
+            ->where('tenant_id', $tenant->id)
+            ->whereIn('status', ['draft', 'partial'])
+            ->where('created_at', '<=', Carbon::now($tz)->subDays(2))
+            ->count();
+
+        if ($pendingPos > 0) {
+            $alerts[] = [
+                'id' => 'alert-po-pending',
+                'type' => 'pending_procurement',
+                'severity' => 'info',
+                'title' => 'Pending Purchase Orders',
+                'message' => "{$pendingPos} purchase orders have been pending for more than 48 hours.",
+                'count' => $pendingPos,
+                'action_route' => '/procurement',
             ];
         }
 
