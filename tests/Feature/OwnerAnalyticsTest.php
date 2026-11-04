@@ -241,4 +241,59 @@ class OwnerAnalyticsTest extends TestCase
         $this->assertEquals('115.00', $response->json('data.summary.total_revenue'));
         $this->assertArrayHasKey('card', $response->json('data.payment_breakdown'));
     }
+
+    public function test_inventory_summary_endpoint(): void
+    {
+        $medicine = Medicine::create([
+            'tenant_id' => $this->tenant->id,
+            'name' => 'Aspirin 75mg',
+            'generic_name' => 'Aspirin',
+            'sku' => 'ASP-75',
+            'reorder_level' => 50,
+            'cost_price' => 10.00,
+            'selling_price' => 15.00,
+            'is_active' => true,
+        ]);
+
+        Batch::create([
+            'tenant_id' => $this->tenant->id,
+            'medicine_id' => $medicine->id,
+            'batch_number' => 'B-ASP-01',
+            'expiry_date' => now()->addDays(20)->toDateString(),
+            'quantity' => 10,
+            'cost_price' => 10.00,
+            'selling_price' => 15.00,
+            'is_active' => true,
+        ]);
+
+        $response = $this->withHeaders([
+            'Authorization' => "Bearer {$this->ownerToken}",
+            'X-Tenant-ID' => (string) $this->tenant->id,
+        ])->getJson('/api/v1/owner/inventory-summary');
+
+        $response->assertStatus(200)
+            ->assertJsonStructure([
+                'data' => [
+                    'valuation' => [
+                        'total_inventory_value',
+                        'potential_sales_value',
+                        'expired_stock_value',
+                    ],
+                    'metrics' => [
+                        'total_catalog_medicines',
+                        'in_stock_count',
+                        'low_stock_count',
+                        'out_of_stock_count',
+                        'near_expiry_count',
+                        'expired_count',
+                    ],
+                    'low_stock_medicines',
+                    'near_expiry_batches',
+                    'expired_batches',
+                ],
+            ]);
+
+        $this->assertEquals(1, $response->json('data.metrics.low_stock_count'));
+        $this->assertEquals(1, $response->json('data.metrics.near_expiry_count'));
+    }
 }

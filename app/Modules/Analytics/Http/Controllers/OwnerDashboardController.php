@@ -58,6 +58,23 @@ class OwnerDashboardController extends Controller
     }
 
     /**
+     * Module 3: Inventory Intelligence & Summary
+     */
+    #[HeaderParameter('X-Tenant-ID', 'Selected pharmacy workspace ID.', true, type: 'integer')]
+    public function inventorySummary(Request $request): JsonResponse
+    {
+        /** @var Tenant $tenant */
+        $tenant = $request->attributes->get('tenant');
+        $this->ensureOwnerAccess($request, $tenant);
+
+        $data = $this->analyticsService->getInventorySummary($tenant);
+
+        return response()->json([
+            'data' => $data,
+        ]);
+    }
+
+    /**
      * Enforce owner authorization boundary.
      */
     protected function ensureOwnerAccess(Request $request, Tenant $tenant): void

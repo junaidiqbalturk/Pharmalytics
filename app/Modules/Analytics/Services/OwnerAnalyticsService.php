@@ -311,6 +311,136 @@ class OwnerAnalyticsService
     }
 
     /**
+     * Module 3: Inventory Intelligence & Batch Health.
+     */
+    public function getInventorySummary(Tenant $tenant): array
+    {
+        $tz = $tenant->timezone ?: 'UTC';
+        $today = Carbon::now($tz)->toDateString();
+        $thirtyDays = Carbon::now($tz)->addDays(30)->toDateString();
+
+        // 1. Total Valuation & Potential Sales
+        $batchStats = Batch::query()
+            ->where('tenant_id', $tenant->id)
+            ->where('is_active', true)
+            ->where('quantity', '>', 0)
+            ->selectRaw('
+                SUM(quantity * cost_price) as total_valuation,
+                SUM(quantity * selling_price) as potential_revenue,
+                SUM(CASE WHEN expiry_date < ? THEN quantity * cost_price ELSE 0 END) as expired_valuation
+            ', [$today])
+            ->first();
+
+        $totalValuation = (float) ($batchStats?->total_valuation ?? 0);
+        $potentialRevenue = (float) ($batchStats?->potential_revenue ?? 0);
+        $expiredValuation = (float) ($batchStats?->expired_valuation ?? 0);
+
+        // 2. Medicine Stock Counts & Health
+        $medicinesWithStock = Medicine::query()
+            ->where('tenant_id', $tenant->id)
+            ->where('is_active', true)
+            ->with(['batches' => function ($q) use ($today): void {
+                $q->where('is_active', true)
+                    ->where('expiry_date', '>=', $today);
+            }])
+            ->get();
+
+        $totalMedicines = $medicinesWithStock->count();
+        $inStockCount = 0;
+        $lowStockCount = 0;
+        $outOfStockCount = 0;
+        $lowStockList = [];
+
+        foreach ($medicinesWithStock as $medicine) {
+            $currentStock = (float) $medicine->batches->sum('quantity');
+            $reorderLevel = (float) ($medicine->reorder_level ?? 10);
+
+            if ($currentStock <= 0) {
+                $outOfStockCount++;
+                $lowStockList[] = [
+                    'id' => $medicine->id,
+                    'name' => $medicine->name,
+                    'generic_name' => $medicine->generic_name,
+                    'current_stock' => '0.000',
+                    'reorder_level' => (string) $reorderLevel,
+                    'selling_price' => (string) ($medicine->selling_price ?? '0.00'),
+                    'status' => 'out_of_stock',
+                ];
+            } elseif ($currentStock <= $reorderLevel) {
+                $lowStockCount++;
+                $lowStockList[] = [
+                    'id' => $medicine->id,
+                    'name' => $medicine->name,
+                    'generic_name' => $medicine->generic_name,
+                    'current_stock' => (string) $currentStock,
+                    'reorder_level' => (string) $reorderLevel,
+                    'selling_price' => (string) ($medicine->selling_price ?? '0.00'),
+                    'status' => 'low_stock',
+                ];
+            } else {
+                $inStockCount++;
+            }
+        }
+
+        // 3. Batches near expiry (within 30 days) and already expired
+        $nearExpiryBatches = Batch::query()
+            ->where('tenant_id', $tenant->id)
+            ->where('is_active', true)
+            ->where('quantity', '>', 0)
+            ->whereBetween('expiry_date', [$today, $thirtyDays])
+            ->with('medicine')
+            ->orderBy('expiry_date', 'asc')
+            ->get()
+            ->map(fn (Batch $b) => [
+                'batch_id' => $b->id,
+                'batch_number' => $b->batch_number,
+                'medicine_id' => $b->medicine_id,
+                'medicine_name' => $b->medicine?->name,
+                'expiry_date' => $b->expiry_date?->format('Y-m-d'),
+                'days_remaining' => Carbon::now($tz)->diffInDays($b->expiry_date, false),
+                'quantity' => (string) $b->quantity,
+                'cost_price' => (string) $b->cost_price,
+            ]);
+
+        $expiredBatches = Batch::query()
+            ->where('tenant_id', $tenant->id)
+            ->where('is_active', true)
+            ->where('quantity', '>', 0)
+            ->where('expiry_date', '<', $today)
+            ->with('medicine')
+            ->orderBy('expiry_date', 'asc')
+            ->get()
+            ->map(fn (Batch $b) => [
+                'batch_id' => $b->id,
+                'batch_number' => $b->batch_number,
+                'medicine_id' => $b->medicine_id,
+                'medicine_name' => $b->medicine?->name,
+                'expiry_date' => $b->expiry_date?->format('Y-m-d'),
+                'quantity' => (string) $b->quantity,
+                'cost_price' => (string) $b->cost_price,
+            ]);
+
+        return [
+            'valuation' => [
+                'total_inventory_value' => number_format($totalValuation, 2, '.', ''),
+                'potential_sales_value' => number_format($potentialRevenue, 2, '.', ''),
+                'expired_stock_value' => number_format($expiredValuation, 2, '.', ''),
+            ],
+            'metrics' => [
+                'total_catalog_medicines' => $totalMedicines,
+                'in_stock_count' => $inStockCount,
+                'low_stock_count' => $lowStockCount,
+                'out_of_stock_count' => $outOfStockCount,
+                'near_expiry_count' => $nearExpiryBatches->count(),
+                'expired_count' => $expiredBatches->count(),
+            ],
+            'low_stock_medicines' => array_slice($lowStockList, 0, 20),
+            'near_expiry_batches' => $nearExpiryBatches,
+            'expired_batches' => $expiredBatches,
+        ];
+    }
+
+    /**
      * Module 6 snippet for dashboard alerts.
      */
     public function getAlerts(Tenant $tenant): array
