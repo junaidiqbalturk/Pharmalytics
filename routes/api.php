@@ -10,4 +10,5 @@ Route::prefix('v1')->group(function (): void {
     require __DIR__.'/../app/Modules/Procurement/routes/api.php';
     require __DIR__.'/../app/Modules/Sales/routes/api.php';
     require __DIR__.'/../app/Modules/Accounting/routes/api.php';
+    require __DIR__.'/../app/Modules/Analytics/routes/api.php';
 });
