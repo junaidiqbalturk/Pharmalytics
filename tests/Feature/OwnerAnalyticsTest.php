@@ -168,4 +168,77 @@ class OwnerAnalyticsTest extends TestCase
         $this->assertEquals(1, $response->json('data.kpis.today_transactions_count'));
         $this->assertEquals('50.00', $response->json('data.kpis.gross_profit'));
     }
+
+    public function test_sales_summary_endpoint(): void
+    {
+        $cat = MedicineCategory::create([
+            'tenant_id' => $this->tenant->id,
+            'name' => 'Antibiotics',
+            'slug' => 'antibiotics',
+        ]);
+
+        $medicine = Medicine::create([
+            'tenant_id' => $this->tenant->id,
+            'medicine_category_id' => $cat->id,
+            'name' => 'Amoxil 250mg',
+            'generic_name' => 'Amoxicillin',
+            'sku' => 'AMX-250',
+            'reorder_level' => 10,
+            'cost_price' => 40.00,
+            'selling_price' => 60.00,
+            'is_active' => true,
+        ]);
+
+        $sale = Sale::create([
+            'tenant_id' => $this->tenant->id,
+            'invoice_number' => 'INV-AMX-001',
+            'subtotal' => 120.00,
+            'discount_amount' => 10.00,
+            'tax_amount' => 5.00,
+            'total_amount' => 115.00,
+            'paid_amount' => 115.00,
+            'change_amount' => 0.00,
+            'payment_method' => 'card',
+            'status' => 'completed',
+        ]);
+
+        $sale->items()->create([
+            'medicine_id' => $medicine->id,
+            'quantity' => 2,
+            'unit_type' => 'strip',
+            'unit_price' => 60.00,
+            'unit_cost' => 40.00,
+            'discount' => 10.00,
+            'subtotal' => 110.00,
+        ]);
+
+        $response = $this->withHeaders([
+            'Authorization' => "Bearer {$this->ownerToken}",
+            'X-Tenant-ID' => (string) $this->tenant->id,
+        ])->getJson('/api/v1/owner/sales-summary?period=this_month');
+
+        $response->assertStatus(200)
+            ->assertJsonStructure([
+                'data' => [
+                    'period',
+                    'start_date',
+                    'end_date',
+                    'summary' => [
+                        'total_revenue',
+                        'subtotal',
+                        'discount_amount',
+                        'tax_amount',
+                        'transactions_count',
+                        'average_order_value',
+                    ],
+                    'payment_breakdown',
+                    'sales_trend',
+                    'top_selling_medicines',
+                    'top_categories',
+                ],
+            ]);
+
+        $this->assertEquals('115.00', $response->json('data.summary.total_revenue'));
+        $this->assertArrayHasKey('card', $response->json('data.payment_breakdown'));
+    }
 }

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Modules\Analytics\Services\OwnerAnalyticsService;
 use App\Modules\Foundation\Models\Tenant;
 use Dedoc\Scramble\Attributes\HeaderParameter;
+use Dedoc\Scramble\Attributes\QueryParameter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -26,6 +27,30 @@ class OwnerDashboardController extends Controller
         $this->ensureOwnerAccess($request, $tenant);
 
         $data = $this->analyticsService->getDashboard($tenant);
+
+        return response()->json([
+            'data' => $data,
+        ]);
+    }
+
+    /**
+     * Module 2: Sales Intelligence & Summary
+     */
+    #[HeaderParameter('X-Tenant-ID', 'Selected pharmacy workspace ID.', true, type: 'integer')]
+    #[QueryParameter('period', 'Filter period: today, yesterday, this_week, this_month, last_month, this_year, custom', false, type: 'string')]
+    #[QueryParameter('start_date', 'Custom start date (YYYY-MM-DD)', false, type: 'string')]
+    #[QueryParameter('end_date', 'Custom end date (YYYY-MM-DD)', false, type: 'string')]
+    public function salesSummary(Request $request): JsonResponse
+    {
+        /** @var Tenant $tenant */
+        $tenant = $request->attributes->get('tenant');
+        $this->ensureOwnerAccess($request, $tenant);
+
+        $period = $request->string('period')->trim()->toString() ?: null;
+        $startDate = $request->string('start_date')->trim()->toString() ?: null;
+        $endDate = $request->string('end_date')->trim()->toString() ?: null;
+
+        $data = $this->analyticsService->getSalesSummary($tenant, $period, $startDate, $endDate);
 
         return response()->json([
             'data' => $data,

@@ -15,6 +15,36 @@ use Illuminate\Support\Facades\DB;
 class OwnerAnalyticsService
 {
     /**
+     * Resolve date range based on period parameter and tenant timezone.
+     *
+     * @return array{Carbon, Carbon, string} [startDate, endDate, periodName]
+     */
+    public function resolveDateRange(Tenant $tenant, ?string $period = null, ?string $startDate = null, ?string $endDate = null): array
+    {
+        $tz = $tenant->timezone ?: 'UTC';
+        $now = Carbon::now($tz);
+
+        if ($period === 'custom' && $startDate && $endDate) {
+            $start = Carbon::parse($startDate, $tz)->startOfDay();
+            $end = Carbon::parse($endDate, $tz)->endOfDay();
+            return [$start, $end, 'custom'];
+        }
+
+        return match ($period) {
+            'today' => [$now->copy()->startOfDay(), $now->copy()->endOfDay(), 'today'],
+            'yesterday' => [$now->copy()->subDay()->startOfDay(), $now->copy()->subDay()->endOfDay(), 'yesterday'],
+            'this_week' => [$now->copy()->startOfWeek(), $now->copy()->endOfWeek(), 'this_week'],
+            'last_month' => [
+                $now->copy()->subMonth()->startOfMonth(),
+                $now->copy()->subMonth()->endOfMonth(),
+                'last_month',
+            ],
+            'this_year' => [$now->copy()->startOfYear(), $now->copy()->endOfYear(), 'this_year'],
+            default => [$now->copy()->startOfMonth(), $now->copy()->endOfMonth(), 'this_month'],
+        };
+    }
+
+    /**
      * Module 1: Executive Dashboard summary.
      */
     public function getDashboard(Tenant $tenant): array
@@ -169,13 +199,124 @@ class OwnerAnalyticsService
     }
 
     /**
+     * Module 2: Sales Intelligence & Trends.
+     */
+    public function getSalesSummary(Tenant $tenant, ?string $period = null, ?string $startDate = null, ?string $endDate = null): array
+    {
+        [$start, $end, $periodName] = $this->resolveDateRange($tenant, $period, $startDate, $endDate);
+        $startUtc = $start->copy()->utc();
+        $endUtc = $end->copy()->utc();
+
+        $salesQuery = Sale::query()
+            ->where('tenant_id', $tenant->id)
+            ->whereBetween('created_at', [$startUtc, $endUtc]);
+
+        $totalRevenue = (float) $salesQuery->sum('total_amount');
+        $subtotal = (float) $salesQuery->sum('subtotal');
+        $discountAmount = (float) $salesQuery->sum('discount_amount');
+        $taxAmount = (float) $salesQuery->sum('tax_amount');
+        $transactionsCount = $salesQuery->count();
+        $avgOrderValue = $transactionsCount > 0 ? round($totalRevenue / $transactionsCount, 2) : 0.0;
+
+        // Payment Breakdown
+        $paymentBreakdown = Sale::query()
+            ->where('tenant_id', $tenant->id)
+            ->whereBetween('created_at', [$startUtc, $endUtc])
+            ->selectRaw('payment_method, SUM(total_amount) as total, COUNT(*) as count')
+            ->groupBy('payment_method')
+            ->get()
+            ->mapWithKeys(function ($row) use ($totalRevenue) {
+                $amount = (float) $row->total;
+                $pct = $totalRevenue > 0 ? round(($amount / $totalRevenue) * 100, 2) : 0.0;
+                return [
+                    $row->payment_method => [
+                        'amount' => number_format($amount, 2, '.', ''),
+                        'count' => (int) $row->count,
+                        'percentage' => $pct,
+                    ],
+                ];
+            });
+
+        // Top 5 Selling Medicines in Period
+        $topMedicines = DB::table('sale_items')
+            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+            ->join('medicines', 'medicines.id', '=', 'sale_items.medicine_id')
+            ->where('sales.tenant_id', $tenant->id)
+            ->whereBetween('sales.created_at', [$startUtc, $endUtc])
+            ->selectRaw('medicines.id, medicines.name, medicines.generic_name, SUM(sale_items.quantity) as quantity_sold, SUM(sale_items.subtotal) as total_revenue')
+            ->groupBy('medicines.id', 'medicines.name', 'medicines.generic_name')
+            ->orderByDesc('total_revenue')
+            ->limit(5)
+            ->get()
+            ->map(fn ($row) => [
+                'medicine_id' => $row->id,
+                'name' => $row->name,
+                'generic_name' => $row->generic_name,
+                'quantity_sold' => (string) round((float) $row->quantity_sold, 2),
+                'total_revenue' => number_format((float) $row->total_revenue, 2, '.', ''),
+            ]);
+
+        // Top 5 Categories in Period
+        $topCategories = DB::table('sale_items')
+            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+            ->join('medicines', 'medicines.id', '=', 'sale_items.medicine_id')
+            ->leftJoin('medicine_categories', 'medicine_categories.id', '=', 'medicines.medicine_category_id')
+            ->where('sales.tenant_id', $tenant->id)
+            ->whereBetween('sales.created_at', [$startUtc, $endUtc])
+            ->selectRaw("COALESCE(medicine_categories.name, 'Uncategorized') as category_name, SUM(sale_items.subtotal) as total_revenue, SUM(sale_items.quantity) as items_sold")
+            ->groupBy('category_name')
+            ->orderByDesc('total_revenue')
+            ->limit(5)
+            ->get()
+            ->map(fn ($row) => [
+                'category_name' => $row->category_name,
+                'total_revenue' => number_format((float) $row->total_revenue, 2, '.', ''),
+                'items_sold' => (string) round((float) $row->items_sold, 2),
+            ]);
+
+        // Daily Trend within the Period
+        $driver = DB::connection()->getDriverName();
+        $dateExpression = $driver === 'sqlite' ? "strftime('%Y-%m-%d', created_at)" : 'DATE(created_at)';
+
+        $trend = DB::table('sales')
+            ->where('tenant_id', $tenant->id)
+            ->whereBetween('created_at', [$startUtc, $endUtc])
+            ->selectRaw("{$dateExpression} as date_label, SUM(total_amount) as daily_total, COUNT(*) as tx_count")
+            ->groupBy('date_label')
+            ->orderBy('date_label', 'asc')
+            ->get()
+            ->map(fn ($row) => [
+                'date' => $row->date_label,
+                'total' => number_format((float) $row->daily_total, 2, '.', ''),
+                'transaction_count' => (int) $row->tx_count,
+            ]);
+
+        return [
+            'period' => $periodName,
+            'start_date' => $start->toDateString(),
+            'end_date' => $end->toDateString(),
+            'summary' => [
+                'total_revenue' => number_format($totalRevenue, 2, '.', ''),
+                'subtotal' => number_format($subtotal, 2, '.', ''),
+                'discount_amount' => number_format($discountAmount, 2, '.', ''),
+                'tax_amount' => number_format($taxAmount, 2, '.', ''),
+                'transactions_count' => $transactionsCount,
+                'average_order_value' => number_format($avgOrderValue, 2, '.', ''),
+            ],
+            'payment_breakdown' => $paymentBreakdown,
+            'sales_trend' => $trend,
+            'top_selling_medicines' => $topMedicines,
+            'top_categories' => $topCategories,
+        ];
+    }
+
+    /**
      * Module 6 snippet for dashboard alerts.
      */
     public function getAlerts(Tenant $tenant): array
     {
         $tz = $tenant->timezone ?: 'UTC';
         $today = Carbon::now($tz)->toDateString();
-        $thirtyDays = Carbon::now($tz)->addDays(30)->toDateString();
         $alerts = [];
 
         $outOfStockCount = Medicine::query()
