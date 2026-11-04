@@ -75,6 +75,30 @@ class OwnerDashboardController extends Controller
     }
 
     /**
+     * Module 5: Financial Intelligence & P&L Summary
+     */
+    #[HeaderParameter('X-Tenant-ID', 'Selected pharmacy workspace ID.', true, type: 'integer')]
+    #[QueryParameter('period', 'Filter period: today, yesterday, this_week, this_month, last_month, this_year, custom', false, type: 'string')]
+    #[QueryParameter('start_date', 'Custom start date (YYYY-MM-DD)', false, type: 'string')]
+    #[QueryParameter('end_date', 'Custom end date (YYYY-MM-DD)', false, type: 'string')]
+    public function financialSummary(Request $request): JsonResponse
+    {
+        /** @var Tenant $tenant */
+        $tenant = $request->attributes->get('tenant');
+        $this->ensureOwnerAccess($request, $tenant);
+
+        $period = $request->string('period')->trim()->toString() ?: null;
+        $startDate = $request->string('start_date')->trim()->toString() ?: null;
+        $endDate = $request->string('end_date')->trim()->toString() ?: null;
+
+        $data = $this->analyticsService->getFinancialSummary($tenant, $period, $startDate, $endDate);
+
+        return response()->json([
+            'data' => $data,
+        ]);
+    }
+
+    /**
      * Enforce owner authorization boundary.
      */
     protected function ensureOwnerAccess(Request $request, Tenant $tenant): void

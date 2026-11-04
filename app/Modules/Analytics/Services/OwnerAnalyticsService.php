@@ -441,6 +441,103 @@ class OwnerAnalyticsService
     }
 
     /**
+     * Module 5: Financial Intelligence & P&L Summary.
+     */
+    public function getFinancialSummary(Tenant $tenant, ?string $period = null, ?string $startDate = null, ?string $endDate = null): array
+    {
+        [$start, $end, $periodName] = $this->resolveDateRange($tenant, $period, $startDate, $endDate);
+        $startUtc = $start->copy()->utc();
+        $endUtc = $end->copy()->utc();
+
+        // 1. Revenue components
+        $sales = Sale::query()
+            ->where('tenant_id', $tenant->id)
+            ->whereBetween('created_at', [$startUtc, $endUtc]);
+
+        $grossRevenue = (float) $sales->sum('subtotal');
+        $discounts = (float) $sales->sum('discount_amount');
+        $taxes = (float) $sales->sum('tax_amount');
+        $netSales = (float) $sales->sum('total_amount');
+
+        // 2. COGS (Cost of goods sold)
+        $cogs = (float) SaleItem::query()
+            ->whereHas('sale', function ($q) use ($tenant, $startUtc, $endUtc): void {
+                $q->where('tenant_id', $tenant->id)
+                    ->whereBetween('created_at', [$startUtc, $endUtc]);
+            })
+            ->selectRaw('SUM(quantity * unit_cost) as total_cogs')
+            ->value('total_cogs') ?? 0.0;
+
+        $grossProfit = round($netSales - $cogs, 2);
+        $grossMargin = $netSales > 0 ? round(($grossProfit / $netSales) * 100, 2) : 0.0;
+
+        // 3. Operating Expenses grouped by account code
+        $expenseItems = DB::table('journal_entry_items')
+            ->join('journal_entries', 'journal_entries.id', '=', 'journal_entry_items.journal_entry_id')
+            ->join('chart_of_accounts', 'chart_of_accounts.id', '=', 'journal_entry_items.chart_of_account_id')
+            ->where('journal_entries.tenant_id', $tenant->id)
+            ->where('chart_of_accounts.type', 'expense')
+            ->where('chart_of_accounts.code', '!=', '5010')
+            ->whereBetween('journal_entries.date', [$start->toDateString(), $end->toDateString()])
+            ->selectRaw("chart_of_accounts.code, chart_of_accounts.name, SUM(CASE WHEN journal_entry_items.type = 'debit' THEN journal_entry_items.amount ELSE -journal_entry_items.amount END) as balance")
+            ->groupBy('chart_of_accounts.code', 'chart_of_accounts.name')
+            ->get();
+
+        $totalExpenses = 0.0;
+        $expenseBreakdown = [];
+        foreach ($expenseItems as $exp) {
+            $amt = (float) $exp->balance;
+            if ($amt > 0) {
+                $totalExpenses += $amt;
+                $expenseBreakdown[] = [
+                    'code' => $exp->code,
+                    'name' => $exp->name,
+                    'amount' => number_format($amt, 2, '.', ''),
+                ];
+            }
+        }
+
+        $netProfit = round($grossProfit - $totalExpenses, 2);
+        $netMargin = $netSales > 0 ? round(($netProfit / $netSales) * 100, 2) : 0.0;
+
+        // 4. Balance Sheet Quick-Look
+        $cashInHand = $this->getAccountBalanceByCode($tenant, '1010');
+        $bankBalance = $this->getAccountBalanceByCode($tenant, '1020');
+        $receivables = $this->getAccountBalanceByCode($tenant, '1100');
+        $inventoryAsset = $this->getAccountBalanceByCode($tenant, '1200');
+        $payables = $this->getAccountBalanceByCode($tenant, '2010');
+
+        return [
+            'period' => $periodName,
+            'start_date' => $start->toDateString(),
+            'end_date' => $end->toDateString(),
+            'profit_and_loss' => [
+                'gross_sales' => number_format($grossRevenue, 2, '.', ''),
+                'discounts' => number_format($discounts, 2, '.', ''),
+                'tax_collected' => number_format($taxes, 2, '.', ''),
+                'net_revenue' => number_format($netSales, 2, '.', ''),
+                'cost_of_goods_sold' => number_format($cogs, 2, '.', ''),
+                'gross_profit' => number_format($grossProfit, 2, '.', ''),
+                'gross_margin_percentage' => $grossMargin,
+                'operating_expenses' => [
+                    'total' => number_format($totalExpenses, 2, '.', ''),
+                    'breakdown' => $expenseBreakdown,
+                ],
+                'net_profit' => number_format($netProfit, 2, '.', ''),
+                'net_profit_margin_percentage' => $netMargin,
+            ],
+            'working_capital_glance' => [
+                'cash_in_hand' => number_format($cashInHand, 2, '.', ''),
+                'bank_balance' => number_format($bankBalance, 2, '.', ''),
+                'accounts_receivable' => number_format($receivables, 2, '.', ''),
+                'inventory_asset' => number_format($inventoryAsset, 2, '.', ''),
+                'accounts_payable' => number_format($payables, 2, '.', ''),
+                'net_liquid_cash' => number_format($cashInHand + $bankBalance, 2, '.', ''),
+            ],
+        ];
+    }
+
+    /**
      * Module 6 snippet for dashboard alerts.
      */
     public function getAlerts(Tenant $tenant): array

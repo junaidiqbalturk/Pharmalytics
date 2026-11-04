@@ -296,4 +296,71 @@ class OwnerAnalyticsTest extends TestCase
         $this->assertEquals(1, $response->json('data.metrics.low_stock_count'));
         $this->assertEquals(1, $response->json('data.metrics.near_expiry_count'));
     }
+
+    public function test_financial_summary_endpoint(): void
+    {
+        $rentAccount = ChartOfAccount::where('tenant_id', $this->tenant->id)->where('code', '6020')->firstOrFail();
+        $cashAccount = ChartOfAccount::where('tenant_id', $this->tenant->id)->where('code', '1010')->firstOrFail();
+
+        $entry = \App\Modules\Accounting\Models\JournalEntry::create([
+            'tenant_id' => $this->tenant->id,
+            'entry_number' => 'JE-RENT-001',
+            'date' => now()->toDateString(),
+            'description' => 'Monthly Pharmacy Store Rent',
+            'status' => 'posted',
+        ]);
+
+        $entry->items()->create([
+            'chart_of_account_id' => $rentAccount->id,
+            'type' => 'debit',
+            'amount' => 500.00,
+            'description' => 'Store rent expense',
+        ]);
+
+        $entry->items()->create([
+            'chart_of_account_id' => $cashAccount->id,
+            'type' => 'credit',
+            'amount' => 500.00,
+            'description' => 'Cash paid for rent',
+        ]);
+
+        $response = $this->withHeaders([
+            'Authorization' => "Bearer {$this->ownerToken}",
+            'X-Tenant-ID' => (string) $this->tenant->id,
+        ])->getJson('/api/v1/owner/financial-summary?period=this_month');
+
+        $response->assertStatus(200)
+            ->assertJsonStructure([
+                'data' => [
+                    'period',
+                    'start_date',
+                    'end_date',
+                    'profit_and_loss' => [
+                        'gross_sales',
+                        'discounts',
+                        'tax_collected',
+                        'net_revenue',
+                        'cost_of_goods_sold',
+                        'gross_profit',
+                        'gross_margin_percentage',
+                        'operating_expenses' => [
+                            'total',
+                            'breakdown',
+                        ],
+                        'net_profit',
+                        'net_profit_margin_percentage',
+                    ],
+                    'working_capital_glance' => [
+                        'cash_in_hand',
+                        'bank_balance',
+                        'accounts_receivable',
+                        'inventory_asset',
+                        'accounts_payable',
+                        'net_liquid_cash',
+                    ],
+                ],
+            ]);
+
+        $this->assertEquals('500.00', $response->json('data.profit_and_loss.operating_expenses.total'));
+    }
 }
