@@ -6,6 +6,7 @@ import {
   Alert,
   Badge,
   Button,
+  FileInput,
   Grid,
   Group,
   Modal,
@@ -14,22 +15,36 @@ import {
   Select,
   Stack,
   Switch,
+  Table,
   Text,
   TextInput,
   Tooltip,
 } from '@mantine/core';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { IconCheck, IconEdit, IconPlus, IconSearch, IconTrash } from '@tabler/icons-react';
+import {
+  IconAlertCircle,
+  IconCheck,
+  IconDownload,
+  IconEdit,
+  IconFileSpreadsheet,
+  IconPlus,
+  IconSearch,
+  IconTrash,
+  IconUpload,
+} from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DataTable } from 'mantine-datatable';
 import { AppShell } from '@/components/app-shell';
 import {
+  BulkImportResponse,
   Medicine,
   createMedicine,
   deleteMedicine,
+  downloadImportTemplate,
   getMedicineCategories,
   getMedicines,
+  importMedicines,
   updateMedicine,
 } from '@/features/catalog/api';
 import { useAuthStore } from '@/stores/auth-store';
@@ -80,6 +95,12 @@ export default function MedicinesPage() {
   // Modal states
   const [opened, { open, close }] = useDisclosure(false);
   const [editingMedicine, setEditingMedicine] = useState<Medicine | null>(null);
+
+  // Bulk Import Modal states
+  const [importModalOpened, { open: openImportModal, close: closeImportModal }] = useDisclosure(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importResult, setImportResult] = useState<BulkImportResponse | null>(null);
+  const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false);
 
   // Form states
   const [name, setName] = useState('');
@@ -278,6 +299,47 @@ export default function MedicinesPage() {
     },
   });
 
+  const handleDownloadTemplate = async () => {
+    try {
+      setIsDownloadingTemplate(true);
+      await downloadImportTemplate();
+      notifications.show({
+        title: 'Template Downloaded',
+        message: 'pharmalytics_inventory_template.csv is ready. Open in Excel, enter medicines, and upload.',
+        color: 'teal',
+      });
+    } catch (err: unknown) {
+      notifications.show({
+        title: 'Download Failed',
+        message: err instanceof Error ? err.message : 'Failed to download template',
+        color: 'red',
+      });
+    } finally {
+      setIsDownloadingTemplate(false);
+    }
+  };
+
+  const importMutation = useMutation({
+    mutationFn: (file: File) => importMedicines(file),
+    onSuccess: (res) => {
+      setImportResult(res);
+      queryClient.invalidateQueries({ queryKey: ['medicines'] });
+      queryClient.invalidateQueries({ queryKey: ['pos-products'] });
+      notifications.show({
+        title: res.errors.length === 0 ? 'Bulk Import Successful!' : 'Import Completed with Notice',
+        message: `${res.summary.created_medicines} medicines created, ${res.summary.created_batches} batches initialized.`,
+        color: res.errors.length === 0 ? 'teal' : 'yellow',
+      });
+    },
+    onError: (err: Error) => {
+      notifications.show({
+        title: 'Import Failed',
+        message: err.message,
+        color: 'red',
+      });
+    },
+  });
+
   return (
     <AppShell>
       <main className="content">
@@ -287,9 +349,23 @@ export default function MedicinesPage() {
             <h1 className="page-title">Medicine master</h1>
             <p className="page-subtitle">A tenant-scoped list of products configured for your pharmacy.</p>
           </div>
-          <Button leftSection={<IconPlus size={16} />} onClick={handleOpenCreate}>
-            Add medicine
-          </Button>
+          <Group gap="xs">
+            <Button
+              variant="light"
+              color="teal"
+              leftSection={<IconFileSpreadsheet size={16} />}
+              onClick={() => {
+                setImportFile(null);
+                setImportResult(null);
+                openImportModal();
+              }}
+            >
+              Bulk Import (Excel / CSV)
+            </Button>
+            <Button leftSection={<IconPlus size={16} />} onClick={handleOpenCreate}>
+              Add medicine
+            </Button>
+          </Group>
         </Group>
 
         {!token && (
@@ -738,6 +814,164 @@ export default function MedicinesPage() {
               </Group>
             </Stack>
           </form>
+        </Modal>
+
+        {/* Bulk Import Inventory Modal */}
+        <Modal
+          opened={importModalOpened}
+          onClose={closeImportModal}
+          title={
+            <Group gap="xs">
+              <IconFileSpreadsheet size={22} color="#0d9488" />
+              <Text fw={700} size="md">
+                Bulk Onboarding: Import Inventory & Opening Stock
+              </Text>
+            </Group>
+          }
+          size="lg"
+          radius="md"
+        >
+          <Stack gap="md">
+            <Text size="xs" c="dimmed">
+              Quickly onboard your pharmacy inventory from an existing spreadsheet. The import engine automatically provisions missing categories, creates product profiles, configures packaging units (blister, bottle, tube), and initializes opening stock batches with FEFO tracking.
+            </Text>
+
+            {/* Step 1: Download Template */}
+            <Paper p="sm" radius="md" withBorder style={{ background: '#f8fafc', borderColor: '#e2e8f0' }}>
+              <Group justify="space-between" align="center">
+                <div>
+                  <Text size="xs" fw={700} c="#0f766e" tt="uppercase">
+                    Step 1: Download Standard Template
+                  </Text>
+                  <Text size="xs" c="#64748b">
+                    Pre-populated with required headers and sample rows for tablets, syrups, and creams.
+                  </Text>
+                </div>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  color="teal"
+                  leftSection={<IconDownload size={14} />}
+                  onClick={handleDownloadTemplate}
+                  loading={isDownloadingTemplate}
+                >
+                  Download Template (.csv)
+                </Button>
+              </Group>
+            </Paper>
+
+            {/* Step 2: Upload File */}
+            <Paper p="sm" radius="md" withBorder style={{ background: '#ffffff', borderColor: '#e2e8f0' }}>
+              <Text size="xs" fw={700} c="#0f766e" tt="uppercase" mb="xs">
+                Step 2: Upload Completed CSV File
+              </Text>
+              <FileInput
+                placeholder="Choose or drop CSV file (e.g. inventory.csv)"
+                accept=".csv,text/csv"
+                clearable
+                value={importFile}
+                onChange={setImportFile}
+                leftSection={<IconUpload size={16} />}
+                description="Excel users: Select 'CSV (Comma delimited) (*.csv)' when saving your workbook."
+                size="sm"
+                mb="sm"
+              />
+
+              <Group justify="flex-end">
+                <Button
+                  color="teal"
+                  size="sm"
+                  leftSection={<IconUpload size={16} />}
+                  disabled={!importFile}
+                  loading={importMutation.isPending}
+                  onClick={() => {
+                    if (importFile) {
+                      importMutation.mutate(importFile);
+                    }
+                  }}
+                >
+                  Process Inventory Import
+                </Button>
+              </Group>
+            </Paper>
+
+            {/* Step 3: Import Results Summary */}
+            {importResult && (
+              <Paper
+                p="md"
+                radius="md"
+                withBorder
+                style={{
+                  background: importResult.errors.length === 0 ? '#f0fdf4' : '#fffbeb',
+                  borderColor: importResult.errors.length === 0 ? '#86efac' : '#fde047',
+                }}
+              >
+                <Text size="xs" fw={700} c={importResult.errors.length === 0 ? '#15803d' : '#a16207'} tt="uppercase" mb="xs">
+                  {importResult.errors.length === 0 ? '✓ Import Completed Successfully' : '⚠️ Import Summary (With Validation Notices)'}
+                </Text>
+
+                <Grid gutter="xs" mb="sm">
+                  <Grid.Col span={4}>
+                    <Paper p="xs" radius="xs" withBorder style={{ background: '#ffffff', textAlign: 'center' }}>
+                      <Text size="10px" c="dimmed" tt="uppercase">Rows Read</Text>
+                      <Text size="lg" fw={800} c="#0f172a">{importResult.summary.total_rows}</Text>
+                    </Paper>
+                  </Grid.Col>
+                  <Grid.Col span={4}>
+                    <Paper p="xs" radius="xs" withBorder style={{ background: '#ffffff', textAlign: 'center' }}>
+                      <Text size="10px" c="dimmed" tt="uppercase">Medicines Saved</Text>
+                      <Text size="lg" fw={800} c="#0d9488">
+                        {importResult.summary.created_medicines + importResult.summary.updated_medicines}
+                      </Text>
+                    </Paper>
+                  </Grid.Col>
+                  <Grid.Col span={4}>
+                    <Paper p="xs" radius="xs" withBorder style={{ background: '#ffffff', textAlign: 'center' }}>
+                      <Text size="10px" c="dimmed" tt="uppercase">Batches Stocked</Text>
+                      <Text size="lg" fw={800} c="#4f46e5">{importResult.summary.created_batches}</Text>
+                    </Paper>
+                  </Grid.Col>
+                </Grid>
+
+                {importResult.errors.length > 0 && (
+                  <div>
+                    <Text size="xs" fw={700} c="#dc2626" mb={4}>
+                      Skipped Rows ({importResult.errors.length}):
+                    </Text>
+                    <Table striped withTableBorder>
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th style={{ width: 60 }}>Row</Table.Th>
+                          <Table.Th>Medicine</Table.Th>
+                          <Table.Th>Reason</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {importResult.errors.slice(0, 10).map((err, idx) => (
+                          <Table.Tr key={idx}>
+                            <Table.Td fw={700}>{err.row}</Table.Td>
+                            <Table.Td>{err.medicine}</Table.Td>
+                            <Table.Td c="#dc2626">{err.message}</Table.Td>
+                          </Table.Tr>
+                        ))}
+                      </Table.Tbody>
+                    </Table>
+                    {importResult.errors.length > 10 && (
+                      <Text size="11px" c="dimmed" mt={4}>
+                        ...and {importResult.errors.length - 10} more rows.
+                      </Text>
+                    )}
+                  </div>
+                )}
+              </Paper>
+            )}
+
+            <Group justify="flex-end" mt="xs">
+              <Button variant="default" onClick={closeImportModal}>
+                {importResult ? 'Done' : 'Cancel'}
+              </Button>
+            </Group>
+          </Stack>
         </Modal>
       </main>
     </AppShell>

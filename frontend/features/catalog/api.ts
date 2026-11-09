@@ -1,4 +1,5 @@
 import { apiRequest } from '@/lib/api';
+import { useAuthStore } from '@/stores/auth-store';
 
 export type Medicine = {
   id: number;
@@ -96,6 +97,61 @@ export function deleteMedicine(id: number) {
   return apiRequest<void>(`/medicines/${id}`, {
     method: 'DELETE',
   });
+}
+
+// --- Bulk Import ---
+export type BulkImportSummary = {
+  total_rows: number;
+  created_medicines: number;
+  updated_medicines: number;
+  created_batches: number;
+  failed_rows: number;
+};
+
+export type BulkImportError = {
+  row: number;
+  medicine: string;
+  message: string;
+};
+
+export type BulkImportResponse = {
+  success: boolean;
+  summary: BulkImportSummary;
+  errors: BulkImportError[];
+};
+
+export function importMedicines(file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+  return apiRequest<BulkImportResponse>('/medicines/import', {
+    method: 'POST',
+    body: formData,
+  });
+}
+
+export async function downloadImportTemplate() {
+  const token = useAuthStore.getState().accessToken;
+  const tenantId = useAuthStore.getState().tenantId;
+  const apiRoot = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000/api/v1').replace(/\/$/, '');
+
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (tenantId) headers['X-Tenant-ID'] = String(tenantId);
+
+  const response = await fetch(`${apiRoot}/medicines/import-template`, { headers });
+  if (!response.ok) {
+    throw new Error('Failed to download inventory template');
+  }
+
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'pharmalytics_inventory_template.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
 }
 
 // --- Categories ---
