@@ -32,3 +32,12 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Mobile and Binary Artifacts
+*.apk
+*.aab
+*.ipa
+mobile/build/
+mobile/.dart_tool/
+mobile/.flutter-plugins*
+
