@@ -8,6 +8,9 @@ export type Medicine = {
   barcode: string | null;
   strength: string | null;
   dosage_form: string | null;
+  packaging_type?: string;
+  is_divisible?: boolean;
+  package_label?: string | null;
   reorder_level: string;
   cost_price: string;
   selling_price: string;
@@ -41,6 +44,9 @@ export type CreateMedicineInput = {
   barcode?: string | null;
   strength?: string | null;
   dosage_form?: string | null;
+  packaging_type?: string;
+  is_divisible?: boolean;
+  package_label?: string | null;
   reorder_level?: number;
   cost_price?: number;
   selling_price?: number;

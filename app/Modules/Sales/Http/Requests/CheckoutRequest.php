@@ -40,7 +40,7 @@ class CheckoutRequest extends FormRequest
                 Rule::exists('batches', 'id')->where('tenant_id', $tenantId),
             ],
             'items.*.quantity' => ['required', 'numeric', 'min:0.001'],
-            'items.*.unit_type' => ['sometimes', 'nullable', 'string', 'in:strip,unit,box'],
+            'items.*.unit_type' => ['sometimes', 'nullable', 'string', 'in:strip,unit,box,pack,bottle,tube,vial,ampoule,inhaler,sachet'],
             'items.*.unit_price' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'items.*.discount' => ['nullable', 'numeric', 'min:0'],
         ];
