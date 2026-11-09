@@ -21,6 +21,9 @@ class Medicine extends Model
         'barcode',
         'strength',
         'dosage_form',
+        'packaging_type',
+        'is_divisible',
+        'package_label',
         'reorder_level',
         'cost_price',
         'selling_price',
@@ -36,6 +39,7 @@ class Medicine extends Model
     {
         return [
             'reorder_level' => 'decimal:3',
+            'is_divisible' => 'boolean',
             'cost_price' => 'decimal:2',
             'selling_price' => 'decimal:2',
             'tablets_per_strip' => 'integer',

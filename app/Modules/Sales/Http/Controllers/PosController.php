@@ -71,19 +71,27 @@ class PosController extends Controller
             foreach ($data['items'] as $item) {
                 $medicine = $tenant->medicines()->findOrFail($item['medicine_id']);
                 $qtyNeeded = (float) $item['quantity'];
-                $unitType = $item['unit_type'] ?? 'strip';
+                $isDivisible = (bool) ($medicine->is_divisible ?? ($medicine->packaging_type === 'blister' || empty($medicine->packaging_type)));
+                $unitType = $item['unit_type'] ?? ($isDivisible ? 'strip' : ($medicine->packaging_type ?: 'pack'));
 
                 $tabletsPerStrip = $medicine->tablets_per_strip ?: 10;
                 $stripsPerBox = $medicine->strips_per_box ?: 10;
 
                 $stockDeduction = $qtyNeeded;
                 $multiplier = 1.0;
-                if ($unitType === 'unit') {
-                    $stockDeduction = round($qtyNeeded / max(1, $tabletsPerStrip), 3);
-                    $multiplier = round(1.0 / max(1, $tabletsPerStrip), 3);
-                } elseif ($unitType === 'box') {
-                    $stockDeduction = round($qtyNeeded * max(1, $stripsPerBox), 3);
-                    $multiplier = (float) $stripsPerBox;
+
+                if ($isDivisible) {
+                    if ($unitType === 'unit') {
+                        $stockDeduction = round($qtyNeeded / max(1, $tabletsPerStrip), 3);
+                        $multiplier = round(1.0 / max(1, $tabletsPerStrip), 3);
+                    } elseif ($unitType === 'box') {
+                        $stockDeduction = round($qtyNeeded * max(1, $stripsPerBox), 3);
+                        $multiplier = (float) $stripsPerBox;
+                    }
+                } else {
+                    // For non-divisible products (bottles, syrups, creams, inhalers), 1 pack/bottle = 1 stock unit
+                    $stockDeduction = $qtyNeeded;
+                    $multiplier = 1.0;
                 }
 
                 // Strictly select or FEFO match batch with pessimistic lock
@@ -125,7 +133,10 @@ class PosController extends Controller
                 $pricePerUnit = (float) ($medicine->price_per_unit > 0 ? $medicine->price_per_unit : round($pricePerStrip / max(1, $tabletsPerStrip), 2));
                 $pricePerBox = (float) ($medicine->price_per_box > 0 ? $medicine->price_per_box : round($pricePerStrip * max(1, $stripsPerBox), 2));
 
-                if ($unitType === 'unit') {
+                if (! $isDivisible) {
+                    // For sealed items (bottles, tubes, vials), selling unit is directly the package price
+                    $authoritativeUnitPrice = $batchSellingPrice;
+                } elseif ($unitType === 'unit') {
                     $authoritativeUnitPrice = $pricePerUnit;
                 } elseif ($unitType === 'box') {
                     $authoritativeUnitPrice = $pricePerBox;

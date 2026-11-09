@@ -8,6 +8,9 @@ export type PosProduct = {
   barcode: string | null;
   strength: string | null;
   dosage_form: string | null;
+  packaging_type?: string;
+  is_divisible?: boolean;
+  package_label?: string | null;
   selling_price: string;
   tablets_per_strip: number;
   strips_per_box: number;
@@ -24,7 +27,7 @@ export type PosProduct = {
 export type CartItem = {
   medicine: PosProduct;
   quantity: number;
-  unitType: 'strip' | 'unit' | 'box';
+  unitType: 'strip' | 'unit' | 'box' | 'bottle' | 'tube' | 'vial' | 'pack' | string;
   unitPrice: number;
   discount: number;
 };
@@ -39,7 +42,7 @@ export type CheckoutInput = {
     medicine_id: number;
     batch_id?: number | null;
     quantity: number;
-    unit_type?: 'strip' | 'unit' | 'box';
+    unit_type?: 'strip' | 'unit' | 'box' | 'bottle' | 'tube' | 'vial' | 'pack' | string;
     unit_price: number;
     discount?: number;
   }>;

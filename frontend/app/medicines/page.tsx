@@ -50,6 +50,16 @@ const DOSAGE_FORMS = [
   'Sachet',
 ];
 
+const PACKAGING_TYPES = [
+  { value: 'blister', label: 'Blister Pack / Strip (Divisible into loose tablets)' },
+  { value: 'bottle', label: 'Bottle / Syrup / Drops (Non-divisible package)' },
+  { value: 'tube', label: 'Tube / Cream / Ointment (Non-divisible package)' },
+  { value: 'vial', label: 'Vial / Ampoule / Injection (Non-divisible package)' },
+  { value: 'inhaler', label: 'Inhaler / Spray (Non-divisible package)' },
+  { value: 'sachet', label: 'Sachet / Powder (Non-divisible package)' },
+  { value: 'box', label: 'Box / Pack / Kit (Non-divisible package)' },
+];
+
 export default function MedicinesPage() {
   const token = useAuthStore((state) => state.accessToken);
   const currentTenantId = useAuthStore((state) => state.tenantId);
@@ -79,6 +89,9 @@ export default function MedicinesPage() {
   const [barcode, setBarcode] = useState('');
   const [strength, setStrength] = useState('');
   const [dosageForm, setDosageForm] = useState<string | null>('Tablet');
+  const [packagingType, setPackagingType] = useState<string>('blister');
+  const [isDivisible, setIsDivisible] = useState<boolean>(true);
+  const [packageLabel, setPackageLabel] = useState<string>('Strip');
   const [reorderLevel, setReorderLevel] = useState<number>(10);
   const [costPrice, setCostPrice] = useState<number>(0);
   const [sellingPrice, setSellingPrice] = useState<number>(0);
@@ -108,6 +121,42 @@ export default function MedicinesPage() {
     label: cat.name,
   }));
 
+  const handleDosageFormChange = (newForm: string | null) => {
+    setDosageForm(newForm);
+    if (!newForm) return;
+    const formLower = newForm.toLowerCase();
+    if (
+      formLower.includes('syrup') ||
+      formLower.includes('suspension') ||
+      formLower.includes('drop') ||
+      formLower.includes('solution')
+    ) {
+      setPackagingType('bottle');
+      setIsDivisible(false);
+      setPackageLabel('Bottle');
+    } else if (formLower.includes('cream') || formLower.includes('ointment') || formLower.includes('gel')) {
+      setPackagingType('tube');
+      setIsDivisible(false);
+      setPackageLabel('Tube');
+    } else if (formLower.includes('injection') || formLower.includes('vial') || formLower.includes('ampoule')) {
+      setPackagingType('vial');
+      setIsDivisible(false);
+      setPackageLabel('Vial');
+    } else if (formLower.includes('inhaler') || formLower.includes('spray')) {
+      setPackagingType('inhaler');
+      setIsDivisible(false);
+      setPackageLabel('Inhaler');
+    } else if (formLower.includes('sachet') || formLower.includes('powder')) {
+      setPackagingType('sachet');
+      setIsDivisible(false);
+      setPackageLabel('Sachet');
+    } else if (formLower.includes('tablet') || formLower.includes('capsule')) {
+      setPackagingType('blister');
+      setIsDivisible(true);
+      setPackageLabel(isPakistan ? 'Patta' : 'Strip');
+    }
+  };
+
   const handleOpenCreate = () => {
     setEditingMedicine(null);
     setName('');
@@ -117,6 +166,9 @@ export default function MedicinesPage() {
     setBarcode('');
     setStrength('');
     setDosageForm('Tablet');
+    setPackagingType('blister');
+    setIsDivisible(true);
+    setPackageLabel('Strip');
     setReorderLevel(10);
     setCostPrice(0);
     setSellingPrice(0);
@@ -139,6 +191,9 @@ export default function MedicinesPage() {
     setBarcode(med.barcode ?? '');
     setStrength(med.strength ?? '');
     setDosageForm(med.dosage_form ?? 'Tablet');
+    setPackagingType(med.packaging_type ?? 'blister');
+    setIsDivisible(med.is_divisible ?? true);
+    setPackageLabel(med.package_label ?? (med.packaging_type === 'bottle' ? 'Bottle' : 'Strip'));
     setReorderLevel(parseFloat(med.reorder_level) || 10);
     setCostPrice(parseFloat(med.cost_price) || 0);
     setSellingPrice(parseFloat(med.selling_price) || 0);
@@ -162,6 +217,9 @@ export default function MedicinesPage() {
         barcode: barcode.trim() || undefined,
         strength: strength.trim() || undefined,
         dosage_form: dosageForm || undefined,
+        packaging_type: packagingType,
+        is_divisible: isDivisible,
+        package_label: packageLabel.trim() || undefined,
         reorder_level: Number(reorderLevel),
         cost_price: Number(costPrice),
         selling_price: Number(sellingPrice),
@@ -310,6 +368,16 @@ export default function MedicinesPage() {
                 accessor: 'packaging',
                 title: isPakistan ? 'Dispensing Rates (Patta / Goli / Dabba)' : 'Packaging Rates (Unit / Box)',
                 render: (med) => {
+                  const isDiv = med.is_divisible !== false && (med.packaging_type === 'blister' || !med.packaging_type);
+                  if (!isDiv) {
+                    const label = med.package_label || (med.packaging_type ? med.packaging_type.toUpperCase() : 'BOTTLE');
+                    return (
+                      <Badge size="xs" variant="filled" color="cyan">
+                        {label} @ {currency} {parseFloat(med.selling_price || '0').toFixed(0)} (Sealed Package)
+                      </Badge>
+                    );
+                  }
+
                   const stripPrice = parseFloat(med.price_per_strip || med.selling_price || '0');
                   const tabs = med.tablets_per_strip || 10;
                   const goliPrice = parseFloat(med.price_per_unit || '0') || (stripPrice / tabs);
@@ -446,8 +514,41 @@ export default function MedicinesPage() {
                     placeholder="Select dosage form"
                     data={DOSAGE_FORMS}
                     value={dosageForm}
-                    onChange={setDosageForm}
+                    onChange={handleDosageFormChange}
                     searchable
+                  />
+                </Grid.Col>
+              </Grid>
+
+              <Grid>
+                <Grid.Col span={6}>
+                  <Select
+                    label="Packaging & Dispensing Form"
+                    description={isDivisible ? 'Divisible into sub-units (e.g. loose tablets)' : 'Sold as sealed, non-divisible whole unit'}
+                    data={PACKAGING_TYPES}
+                    value={packagingType}
+                    onChange={(val) => {
+                      const pType = val || 'blister';
+                      setPackagingType(pType);
+                      const isDiv = pType === 'blister';
+                      setIsDivisible(isDiv);
+                      if (pType === 'bottle') setPackageLabel('Bottle');
+                      else if (pType === 'tube') setPackageLabel('Tube');
+                      else if (pType === 'vial') setPackageLabel('Vial');
+                      else if (pType === 'inhaler') setPackageLabel('Inhaler');
+                      else if (pType === 'sachet') setPackageLabel('Sachet');
+                      else if (pType === 'box') setPackageLabel('Box');
+                      else setPackageLabel(isPakistan ? 'Patta' : 'Strip');
+                    }}
+                  />
+                </Grid.Col>
+                <Grid.Col span={6}>
+                  <TextInput
+                    label="Package Unit Label"
+                    placeholder="e.g. Bottle, Tube, Vial, Strip"
+                    description="Label displayed on POS counter"
+                    value={packageLabel}
+                    onChange={(e) => setPackageLabel(e.currentTarget.value)}
                   />
                 </Grid.Col>
               </Grid>
@@ -516,82 +617,100 @@ export default function MedicinesPage() {
                 </Grid.Col>
               </Grid>
 
-              <Paper p="sm" radius="md" withBorder style={{ background: '#f8fafc', borderColor: '#e2ece9' }}>
-                <Text size="xs" fw={700} c="#0f766e" tt="uppercase" mb="xs">
-                  {isPakistan ? 'Pakistani Dispensing Packaging (Patta / Goli / Dabba)' : 'Packaging & Unit Breakdown (Strip / Box)'}
-                </Text>
-                <Grid gutter="xs">
-                  <Grid.Col span={6}>
-                    <NumberInput
-                      size="xs"
-                      label={isPakistan ? 'Tablets per Patta (Strip)' : 'Units / Tablets per Strip'}
-                      placeholder="10"
-                      min={1}
-                      value={tabletsPerStrip}
-                      onChange={(val) => {
-                        const tabs = typeof val === 'number' && val > 0 ? val : 10;
-                        setTabletsPerStrip(tabs);
-                        if (sellingPrice > 0) {
-                          setPricePerUnit(Math.round((sellingPrice / tabs) * 100) / 100);
-                        }
-                      }}
-                    />
-                  </Grid.Col>
-                  <Grid.Col span={6}>
-                    <NumberInput
-                      size="xs"
-                      label={isPakistan ? 'Pattay per Dabba (Box)' : 'Strips per Pack / Box'}
-                      placeholder="10"
-                      min={1}
-                      value={stripsPerBox}
-                      onChange={(val) => {
-                        const boxes = typeof val === 'number' && val > 0 ? val : 10;
-                        setStripsPerBox(boxes);
-                        if (sellingPrice > 0) {
-                          setPricePerBox(Math.round(sellingPrice * boxes * 100) / 100);
-                        }
-                      }}
-                    />
-                  </Grid.Col>
-                </Grid>
-                <Grid gutter="xs" mt="xs">
-                  <Grid.Col span={isPakistan ? 4 : 6}>
-                    <NumberInput
-                      size="xs"
-                      label={isPakistan ? `Price / Patta (${currency})` : `Price / Unit / Strip (${currency})`}
-                      placeholder={String(sellingPrice)}
-                      min={0}
-                      decimalScale={2}
-                      value={pricePerStrip || sellingPrice}
-                      onChange={(val) => setPricePerStrip(typeof val === 'number' ? val : 0)}
-                    />
-                  </Grid.Col>
-                  {isPakistan && (
-                    <Grid.Col span={4}>
+              {isDivisible ? (
+                <Paper p="sm" radius="md" withBorder style={{ background: '#f8fafc', borderColor: '#e2ece9' }}>
+                  <Text size="xs" fw={700} c="#0f766e" tt="uppercase" mb="xs">
+                    {isPakistan ? 'Pakistani Dispensing Packaging (Patta / Goli / Dabba)' : 'Packaging & Unit Breakdown (Strip / Box)'}
+                  </Text>
+                  <Grid gutter="xs">
+                    <Grid.Col span={6}>
                       <NumberInput
                         size="xs"
-                        label={`Price / Goli Loose (${currency})`}
-                        placeholder={String(Math.round((sellingPrice / (tabletsPerStrip || 10)) * 100) / 100)}
-                        min={0}
-                        decimalScale={2}
-                        value={pricePerUnit}
-                        onChange={(val) => setPricePerUnit(typeof val === 'number' ? val : 0)}
+                        label={isPakistan ? 'Tablets per Patta (Strip)' : 'Units / Tablets per Strip'}
+                        placeholder="10"
+                        min={1}
+                        value={tabletsPerStrip}
+                        onChange={(val) => {
+                          const tabs = typeof val === 'number' && val > 0 ? val : 10;
+                          setTabletsPerStrip(tabs);
+                          if (sellingPrice > 0) {
+                            setPricePerUnit(Math.round((sellingPrice / tabs) * 100) / 100);
+                          }
+                        }}
                       />
                     </Grid.Col>
-                  )}
-                  <Grid.Col span={isPakistan ? 4 : 6}>
-                    <NumberInput
-                      size="xs"
-                      label={isPakistan ? `Price / Dabba (${currency})` : `Price / Pack / Box (${currency})`}
-                      placeholder={String(Math.round(sellingPrice * (stripsPerBox || 10) * 100) / 100)}
-                      min={0}
-                      decimalScale={2}
-                      value={pricePerBox}
-                      onChange={(val) => setPricePerBox(typeof val === 'number' ? val : 0)}
-                    />
-                  </Grid.Col>
-                </Grid>
-              </Paper>
+                    <Grid.Col span={6}>
+                      <NumberInput
+                        size="xs"
+                        label={isPakistan ? 'Pattay per Dabba (Box)' : 'Strips per Pack / Box'}
+                        placeholder="10"
+                        min={1}
+                        value={stripsPerBox}
+                        onChange={(val) => {
+                          const boxes = typeof val === 'number' && val > 0 ? val : 10;
+                          setStripsPerBox(boxes);
+                          if (sellingPrice > 0) {
+                            setPricePerBox(Math.round(sellingPrice * boxes * 100) / 100);
+                          }
+                        }}
+                      />
+                    </Grid.Col>
+                  </Grid>
+                  <Grid gutter="xs" mt="xs">
+                    <Grid.Col span={isPakistan ? 4 : 6}>
+                      <NumberInput
+                        size="xs"
+                        label={isPakistan ? `Price / Patta (${currency})` : `Price / Unit / Strip (${currency})`}
+                        placeholder={String(sellingPrice)}
+                        min={0}
+                        decimalScale={2}
+                        value={pricePerStrip || sellingPrice}
+                        onChange={(val) => setPricePerStrip(typeof val === 'number' ? val : 0)}
+                      />
+                    </Grid.Col>
+                    {isPakistan && (
+                      <Grid.Col span={4}>
+                        <NumberInput
+                          size="xs"
+                          label={`Price / Goli Loose (${currency})`}
+                          placeholder={String(Math.round((sellingPrice / (tabletsPerStrip || 10)) * 100) / 100)}
+                          min={0}
+                          decimalScale={2}
+                          value={pricePerUnit}
+                          onChange={(val) => setPricePerUnit(typeof val === 'number' ? val : 0)}
+                        />
+                      </Grid.Col>
+                    )}
+                    <Grid.Col span={isPakistan ? 4 : 6}>
+                      <NumberInput
+                        size="xs"
+                        label={isPakistan ? `Price / Dabba (${currency})` : `Price / Pack / Box (${currency})`}
+                        placeholder={String(Math.round(sellingPrice * (stripsPerBox || 10) * 100) / 100)}
+                        min={0}
+                        decimalScale={2}
+                        value={pricePerBox}
+                        onChange={(val) => setPricePerBox(typeof val === 'number' ? val : 0)}
+                      />
+                    </Grid.Col>
+                  </Grid>
+                </Paper>
+              ) : (
+                <Paper p="sm" radius="md" withBorder style={{ background: '#f0fdfa', borderColor: '#ccfbf1' }}>
+                  <Group justify="space-between" align="center">
+                    <div>
+                      <Text size="xs" fw={700} c="#0f766e" tt="uppercase">
+                        Sealed Unit Dispensing ({packageLabel || 'Bottle'})
+                      </Text>
+                      <Text size="xs" c="#134e4a">
+                        This product is sold as a sealed whole package. POS will automatically hide loose tablet buttons.
+                      </Text>
+                    </div>
+                    <Badge color="teal" variant="light" size="lg">
+                      {currency} {sellingPrice.toFixed(2)} / {packageLabel || 'Bottle'}
+                    </Badge>
+                  </Group>
+                </Paper>
+              )}
 
               {!editingMedicine && (
                 <NumberInput

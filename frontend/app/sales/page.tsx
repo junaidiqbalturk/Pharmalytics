@@ -116,7 +116,12 @@ export default function SalesPosPage() {
   }, [productsData]);
 
   // Helper to calculate price per unit type
-  const getProductPriceForUnit = (product: PosProduct, unit: 'strip' | 'unit' | 'box'): number => {
+  const getProductPriceForUnit = (product: PosProduct, unit: string): number => {
+    const isDivisible = product.is_divisible !== false && (product.packaging_type === 'blister' || !product.packaging_type);
+    if (!isDivisible) {
+      return parseFloat(product.selling_price) || 0;
+    }
+
     const stripPrice = parseFloat(product.price_per_strip) || parseFloat(product.selling_price) || 0;
     const tabsPerStrip = Math.max(1, product.tablets_per_strip || 10);
     const stripsPerBox = Math.max(1, product.strips_per_box || 10);
@@ -141,7 +146,7 @@ export default function SalesPosPage() {
   const changeDue = Math.max(0, (paidAmount || 0) - totalPayable);
 
   // Cart actions
-  const addToCart = (product: PosProduct, unitType: 'strip' | 'unit' | 'box' = 'strip', qty = 1) => {
+  const addToCart = (product: PosProduct, unitType: string = 'strip', qty = 1) => {
     const availableStock = parseFloat(product.total_stock) || 0;
     if (!product.in_stock || availableStock <= 0) {
       notifications.show({
@@ -152,11 +157,13 @@ export default function SalesPosPage() {
       return;
     }
 
-    const price = getProductPriceForUnit(product, unitType);
+    const isDivisible = product.is_divisible !== false && (product.packaging_type === 'blister' || !product.packaging_type);
+    const effectiveUnitType = isDivisible ? unitType : (product.packaging_type || 'bottle');
+    const price = getProductPriceForUnit(product, effectiveUnitType);
 
     setCart((prev) => {
       const existingIndex = prev.findIndex(
-        (item) => item.medicine.id === product.id && item.unitType === unitType
+        (item) => item.medicine.id === product.id && item.unitType === effectiveUnitType
       );
 
       if (existingIndex > -1) {
@@ -173,14 +180,21 @@ export default function SalesPosPage() {
         {
           medicine: product,
           quantity: qty,
-          unitType,
+          unitType: effectiveUnitType,
           unitPrice: price,
           discount: 0,
         },
       ];
     });
 
-    const unitLabel = unitType === 'unit' ? 'Goli (Loose Tab)' : unitType === 'box' ? 'Dabba (Box)' : 'Patta (Strip)';
+    const unitLabel = !isDivisible
+      ? (product.package_label || (product.packaging_type ? product.packaging_type.toUpperCase() : 'Bottle'))
+      : effectiveUnitType === 'unit'
+      ? 'Goli (Loose Tab)'
+      : effectiveUnitType === 'box'
+      ? 'Dabba (Box)'
+      : 'Patta (Strip)';
+
     notifications.show({
       title: 'Added to Cart',
       message: `+${qty} ${unitLabel} of ${product.name}`,
@@ -189,7 +203,7 @@ export default function SalesPosPage() {
     });
   };
 
-  const updateQuantity = (medicineId: number, unitType: 'strip' | 'unit' | 'box', qty: number) => {
+  const updateQuantity = (medicineId: number, unitType: string, qty: number) => {
     setCart((prev) =>
       prev
         .map((item) => {
@@ -203,7 +217,7 @@ export default function SalesPosPage() {
     );
   };
 
-  const updateUnitType = (medicineId: number, currentUnit: 'strip' | 'unit' | 'box', newUnit: 'strip' | 'unit' | 'box') => {
+  const updateUnitType = (medicineId: number, currentUnit: string, newUnit: string) => {
     setCart((prev) =>
       prev.map((item) => {
         if (item.medicine.id === medicineId && item.unitType === currentUnit) {
@@ -219,7 +233,7 @@ export default function SalesPosPage() {
     );
   };
 
-  const removeFromCart = (medicineId: number, unitType: 'strip' | 'unit' | 'box') => {
+  const removeFromCart = (medicineId: number, unitType: string) => {
     setCart((prev) => prev.filter((item) => !(item.medicine.id === medicineId && item.unitType === unitType)));
   };
 
@@ -492,7 +506,11 @@ export default function SalesPosPage() {
                                 </Table.Td>
                                 <Table.Td>
                                   <Badge color={inStock ? 'teal' : 'gray'} size="xs" variant={inStock ? 'filled' : 'outline'}>
-                                    {inStock ? `${stockStrips.toFixed(1)} ${isPakistan ? 'Pattay' : 'Units'}` : 'Out of stock'}
+                                    {inStock
+                                      ? product.is_divisible !== false && (product.packaging_type === 'blister' || !product.packaging_type)
+                                        ? `${stockStrips.toFixed(1)} ${isPakistan ? 'Pattay' : 'Units'}`
+                                        : `${stockStrips.toFixed(0)} ${product.package_label || (product.packaging_type ? product.packaging_type.toUpperCase() : 'BOTTLE')}`
+                                      : 'Out of stock'}
                                   </Badge>
                                 </Table.Td>
                                 <Table.Td>
@@ -503,52 +521,85 @@ export default function SalesPosPage() {
                                 {isPakistan && (
                                   <Table.Td>
                                     <Text size="xs" fw={700} c="#0284c7">
-                                      {currency} {goliPrice.toFixed(2)}
+                                      {product.is_divisible !== false && (product.packaging_type === 'blister' || !product.packaging_type)
+                                        ? `${currency} ${goliPrice.toFixed(2)}`
+                                        : '—'}
                                     </Text>
                                   </Table.Td>
                                 )}
                                 <Table.Td ta="right">
-                                  <Group gap={4} justify="flex-end">
-                                    <Button
-                                      size="compact-xs"
-                                      color="teal"
-                                      disabled={!inStock}
-                                      onClick={() => addToCart(product, 'strip', 1)}
-                                    >
-                                      +1 {isPakistan ? 'Patta' : 'Unit'}
-                                    </Button>
-                                    {isPakistan && (
-                                      <>
-                                        <Button
-                                          size="compact-xs"
-                                          color="cyan"
-                                          variant="light"
-                                          disabled={!inStock}
-                                          onClick={() => addToCart(product, 'unit', 1)}
-                                        >
-                                          +1 Goli
-                                        </Button>
-                                        <Button
-                                          size="compact-xs"
-                                          color="cyan"
-                                          variant="light"
-                                          disabled={!inStock}
-                                          onClick={() => addToCart(product, 'unit', 4)}
-                                        >
-                                          +4 Goli
-                                        </Button>
-                                      </>
-                                    )}
-                                    <Button
-                                      size="compact-xs"
-                                      color="indigo"
-                                      variant="subtle"
-                                      disabled={!inStock}
-                                      onClick={() => addToCart(product, 'box', 1)}
-                                    >
-                                      +1 {isPakistan ? 'Dabba' : 'Box'}
-                                    </Button>
-                                  </Group>
+                                  {product.is_divisible !== false && (product.packaging_type === 'blister' || !product.packaging_type) ? (
+                                    <Group gap={4} justify="flex-end">
+                                      <Button
+                                        size="compact-xs"
+                                        color="teal"
+                                        disabled={!inStock}
+                                        onClick={() => addToCart(product, 'strip', 1)}
+                                      >
+                                        +1 {isPakistan ? 'Patta' : 'Unit'}
+                                      </Button>
+                                      {isPakistan && (
+                                        <>
+                                          <Button
+                                            size="compact-xs"
+                                            color="cyan"
+                                            variant="light"
+                                            disabled={!inStock}
+                                            onClick={() => addToCart(product, 'unit', 1)}
+                                          >
+                                            +1 Goli
+                                          </Button>
+                                          <Button
+                                            size="compact-xs"
+                                            color="cyan"
+                                            variant="light"
+                                            disabled={!inStock}
+                                            onClick={() => addToCart(product, 'unit', 4)}
+                                          >
+                                            +4 Goli
+                                          </Button>
+                                        </>
+                                      )}
+                                      <Button
+                                        size="compact-xs"
+                                        color="indigo"
+                                        variant="subtle"
+                                        disabled={!inStock}
+                                        onClick={() => addToCart(product, 'box', 1)}
+                                      >
+                                        +1 {isPakistan ? 'Dabba' : 'Box'}
+                                      </Button>
+                                    </Group>
+                                  ) : (
+                                    <Group gap={4} justify="flex-end">
+                                      <Button
+                                        size="compact-xs"
+                                        color="teal"
+                                        disabled={!inStock}
+                                        onClick={() => addToCart(product, product.packaging_type || 'bottle', 1)}
+                                      >
+                                        +1 {product.package_label || (product.packaging_type ? product.packaging_type.toUpperCase() : 'BOTTLE')}
+                                      </Button>
+                                      <Button
+                                        size="compact-xs"
+                                        color="teal"
+                                        variant="light"
+                                        disabled={!inStock}
+                                        onClick={() => addToCart(product, product.packaging_type || 'bottle', 2)}
+                                      >
+                                        +2
+                                      </Button>
+                                      <Button
+                                        size="compact-xs"
+                                        color="teal"
+                                        variant="light"
+                                        disabled={!inStock}
+                                        onClick={() => addToCart(product, product.packaging_type || 'bottle', 5)}
+                                      >
+                                        +5
+                                      </Button>
+                                    </Group>
+                                  )}
                                 </Table.Td>
                               </Table.Tr>
                             );
@@ -632,136 +683,197 @@ export default function SalesPosPage() {
                                   </Group>
 
                                   {/* PACKAGING RATES (Pakistan: Patta / Goli / Dabba; International: Unit / Box) */}
-                                  <Paper
-                                    mt="xs"
-                                    p={8}
-                                    radius="sm"
-                                    style={{
-                                      background: '#f8fafc',
-                                      border: '1px solid #e2e8f0',
-                                    }}
-                                  >
-                                    <Group justify="space-between" gap={4}>
-                                      <div>
-                                        <Text size="10px" fw={700} c="#0f766e" tt="uppercase">
-                                          {isPakistan ? `1 Patta (${tabsPerStrip} tabs)` : '1 Unit / Strip'}
-                                        </Text>
-                                        <Text size="xs" fw={800} c="#0f172a">
-                                          {currency} {stripPrice.toFixed(2)}
-                                        </Text>
-                                      </div>
-                                      {isPakistan && (
-                                        <>
-                                          <Divider orientation="vertical" />
-                                          <div>
-                                            <Text size="10px" fw={700} c="#0284c7" tt="uppercase">
-                                              1 Goli (Loose)
-                                            </Text>
-                                            <Text size="xs" fw={800} c="#0f172a">
-                                              {currency} {goliPrice.toFixed(2)}
-                                            </Text>
-                                          </div>
-                                        </>
-                                      )}
-                                      <Divider orientation="vertical" />
-                                      <div>
-                                        <Text size="10px" fw={700} c="#4f46e5" tt="uppercase">
-                                          {isPakistan ? `1 Dabba (${stripsPerBox} pt)` : `1 Box / Pack (${stripsPerBox} units)`}
-                                        </Text>
-                                        <Text size="xs" fw={800} c="#0f172a">
-                                          {currency} {boxPrice.toFixed(2)}
-                                        </Text>
-                                      </div>
-                                    </Group>
-                                  </Paper>
+                                  {product.is_divisible !== false && (product.packaging_type === 'blister' || !product.packaging_type) ? (
+                                    <Paper
+                                      mt="xs"
+                                      p={8}
+                                      radius="sm"
+                                      style={{
+                                        background: '#f8fafc',
+                                        border: '1px solid #e2e8f0',
+                                      }}
+                                    >
+                                      <Group justify="space-between" gap={4}>
+                                        <div>
+                                          <Text size="10px" fw={700} c="#0f766e" tt="uppercase">
+                                            {isPakistan ? `1 Patta (${tabsPerStrip} tabs)` : '1 Unit / Strip'}
+                                          </Text>
+                                          <Text size="xs" fw={800} c="#0f172a">
+                                            {currency} {stripPrice.toFixed(2)}
+                                          </Text>
+                                        </div>
+                                        {isPakistan && (
+                                          <>
+                                            <Divider orientation="vertical" />
+                                            <div>
+                                              <Text size="10px" fw={700} c="#0284c7" tt="uppercase">
+                                                1 Goli (Loose)
+                                              </Text>
+                                              <Text size="xs" fw={800} c="#0f172a">
+                                                {currency} {goliPrice.toFixed(2)}
+                                              </Text>
+                                            </div>
+                                          </>
+                                        )}
+                                        <Divider orientation="vertical" />
+                                        <div>
+                                          <Text size="10px" fw={700} c="#4f46e5" tt="uppercase">
+                                            {isPakistan ? `1 Dabba (${stripsPerBox} pt)` : `1 Box / Pack (${stripsPerBox} units)`}
+                                          </Text>
+                                          <Text size="xs" fw={800} c="#0f172a">
+                                            {currency} {boxPrice.toFixed(2)}
+                                          </Text>
+                                        </div>
+                                      </Group>
+                                    </Paper>
+                                  ) : (
+                                    <Paper mt="xs" p={8} radius="sm" style={{ background: '#f0fdfa', border: '1px solid #ccfbf1' }}>
+                                      <Group justify="space-between" align="center">
+                                        <div>
+                                          <Text size="10px" fw={700} c="#0f766e" tt="uppercase">
+                                            Sealed Package
+                                          </Text>
+                                          <Text size="xs" fw={800} c="#0f172a">
+                                            {product.package_label || (product.packaging_type ? product.packaging_type.toUpperCase() : 'BOTTLE')}
+                                          </Text>
+                                        </div>
+                                        <div>
+                                          <Text size="10px" fw={700} c="#0284c7" tt="uppercase">
+                                            Unit Price
+                                          </Text>
+                                          <Text size="xs" fw={800} c="#0f172a">
+                                            {currency} {parseFloat(product.selling_price || '0').toFixed(2)}
+                                          </Text>
+                                        </div>
+                                      </Group>
+                                    </Paper>
+                                  )}
                                 </div>
 
                                 {/* OTC 1-CLICK DISPENSING ACTION BUTTONS */}
                                 <Stack gap={6} mt="sm">
-                                  {/* Primary Actions: Strip & Box */}
-                                  <Group justify="space-between" gap={6}>
-                                    <Button
-                                      size="xs"
-                                      color="teal"
-                                      variant="filled"
-                                      disabled={!inStock}
-                                      leftSection={<IconPackage size={14} />}
-                                      onClick={() => addToCart(product, 'strip', 1)}
-                                      style={{ flex: 1.2, fontWeight: 700 }}
-                                    >
-                                      + 1 {isPakistan ? 'Patta' : 'Unit'} ({currency} {stripPrice.toFixed(0)})
-                                    </Button>
-                                    <Button
-                                      size="xs"
-                                      color="indigo"
-                                      variant="light"
-                                      disabled={!inStock}
-                                      onClick={() => addToCart(product, 'box', 1)}
-                                      style={{ flex: 1 }}
-                                    >
-                                      + 1 {isPakistan ? 'Dabba' : 'Box'}
-                                    </Button>
-                                  </Group>
-
-                                  {/* Pakistani Pharmacy: Instant Loose Cut Tablet (Goli) Quick Dispense Buttons */}
-                                  {isPakistan && (
-                                    <Paper p={4} radius="xs" style={{ background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
-                                      <Group justify="space-between" align="center" gap={4}>
-                                        <Group gap={4} align="center">
-                                          <IconCut size={14} color="#15803d" />
-                                          <Text size="10px" fw={700} c="#15803d">
-                                            Cut Goli:
-                                          </Text>
-                                        </Group>
-                                        <Group gap={3}>
-                                          <Button
-                                            size="compact-xs"
-                                            variant="filled"
-                                            color="green"
-                                            disabled={!inStock}
-                                            onClick={() => addToCart(product, 'unit', 1)}
-                                          >
-                                            +1
-                                          </Button>
-                                          <Button
-                                            size="compact-xs"
-                                            variant="filled"
-                                            color="green"
-                                            disabled={!inStock}
-                                            onClick={() => addToCart(product, 'unit', 2)}
-                                          >
-                                            +2
-                                          </Button>
-                                          <Button
-                                            size="compact-xs"
-                                            variant="filled"
-                                            color="green"
-                                            disabled={!inStock}
-                                            onClick={() => addToCart(product, 'unit', 4)}
-                                          >
-                                            +4
-                                          </Button>
-                                          <Button
-                                            size="compact-xs"
-                                            variant="filled"
-                                            color="green"
-                                            disabled={!inStock}
-                                            onClick={() => addToCart(product, 'unit', 6)}
-                                          >
-                                            +6
-                                          </Button>
-                                          <Button
-                                            size="compact-xs"
-                                            variant="filled"
-                                            color="green"
-                                            disabled={!inStock}
-                                            onClick={() => addToCart(product, 'unit', 10)}
-                                          >
-                                            +10
-                                          </Button>
-                                        </Group>
+                                  {product.is_divisible !== false && (product.packaging_type === 'blister' || !product.packaging_type) ? (
+                                    <>
+                                      {/* Primary Actions: Strip & Box */}
+                                      <Group justify="space-between" gap={6}>
+                                        <Button
+                                          size="xs"
+                                          color="teal"
+                                          variant="filled"
+                                          disabled={!inStock}
+                                          leftSection={<IconPackage size={14} />}
+                                          onClick={() => addToCart(product, 'strip', 1)}
+                                          style={{ flex: 1.2, fontWeight: 700 }}
+                                        >
+                                          + 1 {isPakistan ? 'Patta' : 'Unit'} ({currency} {stripPrice.toFixed(0)})
+                                        </Button>
+                                        <Button
+                                          size="xs"
+                                          color="indigo"
+                                          variant="light"
+                                          disabled={!inStock}
+                                          onClick={() => addToCart(product, 'box', 1)}
+                                          style={{ flex: 1 }}
+                                        >
+                                          + 1 {isPakistan ? 'Dabba' : 'Box'}
+                                        </Button>
                                       </Group>
-                                    </Paper>
+
+                                      {/* Pakistani Pharmacy: Instant Loose Cut Tablet (Goli) Quick Dispense Buttons */}
+                                      {isPakistan && (
+                                        <Paper p={4} radius="xs" style={{ background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+                                          <Group justify="space-between" align="center" gap={4}>
+                                            <Group gap={4} align="center">
+                                              <IconCut size={14} color="#15803d" />
+                                              <Text size="10px" fw={700} c="#15803d">
+                                                Cut Goli:
+                                              </Text>
+                                            </Group>
+                                            <Group gap={3}>
+                                              <Button
+                                                size="compact-xs"
+                                                variant="filled"
+                                                color="green"
+                                                disabled={!inStock}
+                                                onClick={() => addToCart(product, 'unit', 1)}
+                                              >
+                                                +1
+                                              </Button>
+                                              <Button
+                                                size="compact-xs"
+                                                variant="filled"
+                                                color="green"
+                                                disabled={!inStock}
+                                                onClick={() => addToCart(product, 'unit', 2)}
+                                              >
+                                                +2
+                                              </Button>
+                                              <Button
+                                                size="compact-xs"
+                                                variant="filled"
+                                                color="green"
+                                                disabled={!inStock}
+                                                onClick={() => addToCart(product, 'unit', 4)}
+                                              >
+                                                +4
+                                              </Button>
+                                              <Button
+                                                size="compact-xs"
+                                                variant="filled"
+                                                color="green"
+                                                disabled={!inStock}
+                                                onClick={() => addToCart(product, 'unit', 6)}
+                                              >
+                                                +6
+                                              </Button>
+                                              <Button
+                                                size="compact-xs"
+                                                variant="filled"
+                                                color="green"
+                                                disabled={!inStock}
+                                                onClick={() => addToCart(product, 'unit', 10)}
+                                              >
+                                                +10
+                                              </Button>
+                                            </Group>
+                                          </Group>
+                                        </Paper>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <Group justify="space-between" gap={6}>
+                                      <Button
+                                        size="xs"
+                                        color="teal"
+                                        variant="filled"
+                                        disabled={!inStock}
+                                        leftSection={<IconPackage size={14} />}
+                                        onClick={() => addToCart(product, product.packaging_type || 'bottle', 1)}
+                                        style={{ flex: 1.5, fontWeight: 700 }}
+                                      >
+                                        + 1 {product.package_label || (product.packaging_type ? product.packaging_type.toUpperCase() : 'BOTTLE')} ({currency} {parseFloat(product.selling_price || '0').toFixed(0)})
+                                      </Button>
+                                      <Button
+                                        size="xs"
+                                        color="teal"
+                                        variant="light"
+                                        disabled={!inStock}
+                                        onClick={() => addToCart(product, product.packaging_type || 'bottle', 2)}
+                                        style={{ flex: 0.8 }}
+                                      >
+                                        + 2
+                                      </Button>
+                                      <Button
+                                        size="xs"
+                                        color="teal"
+                                        variant="light"
+                                        disabled={!inStock}
+                                        onClick={() => addToCart(product, product.packaging_type || 'bottle', 5)}
+                                        style={{ flex: 0.8 }}
+                                      >
+                                        + 5
+                                      </Button>
+                                    </Group>
                                   )}
                                 </Stack>
                               </Card>
@@ -844,9 +956,15 @@ export default function SalesPosPage() {
                         const lineSubtotal = item.quantity * item.unitPrice;
 
                         // Deduction info
+                        const isDivItem = item.medicine.is_divisible !== false && (item.medicine.packaging_type === 'blister' || !item.medicine.packaging_type);
+                        const itemPackLabel = item.medicine.package_label || (item.medicine.packaging_type ? item.medicine.packaging_type.toUpperCase() : 'BOTTLE');
                         let deductionInfo = '';
                         let unitDisplay = isPakistan ? 'Patta' : 'Unit';
-                        if (item.unitType === 'unit') {
+
+                        if (!isDivItem) {
+                          unitDisplay = itemPackLabel;
+                          deductionInfo = `Deducts ${item.quantity} ${itemPackLabel}`;
+                        } else if (item.unitType === 'unit') {
                           unitDisplay = isPakistan ? 'Goli (Loose)' : 'Tablet';
                           const stripsDeducted = (item.quantity / tabsPerStrip).toFixed(2);
                           deductionInfo = `Deducts ${stripsDeducted} ${isPakistan ? 'strips' : 'units'} (${item.quantity} loose tablets)`;
@@ -886,34 +1004,53 @@ export default function SalesPosPage() {
                               </Text>
                             </Group>
 
-                            {/* Unit Selector: Pakistan (Patta / Goli / Dabba) vs International (Unit / Box) */}
+                            {/* Unit Selector: Pakistan (Patta / Goli / Dabba) vs International (Unit / Box) vs Sealed Package */}
                             <Group justify="space-between" align="center" mt={6} mb={6}>
-                              <SegmentedControl
-                                size="xs"
-                                value={item.unitType}
-                                onChange={(val) =>
-                                  updateUnitType(item.medicine.id, item.unitType, val as 'strip' | 'unit' | 'box')
-                                }
-                                data={
-                                  isPakistan
-                                    ? [
-                                        { label: '🟢 Patta', value: 'strip' },
-                                        { label: '✂️ Goli', value: 'unit' },
-                                        { label: '📦 Dabba', value: 'box' },
-                                      ]
-                                    : [
-                                        { label: '🟢 Unit / Strip', value: 'strip' },
-                                        { label: '📦 Box / Pack', value: 'box' },
-                                      ]
-                                }
-                                color="teal"
-                                styles={{
-                                  root: { background: '#f1f5f9' },
-                                  label: { fontSize: 11, padding: '3px 8px', fontWeight: 600 },
-                                }}
-                              />
+                              {isDivItem ? (
+                                <SegmentedControl
+                                  size="xs"
+                                  value={item.unitType}
+                                  onChange={(val) =>
+                                    updateUnitType(item.medicine.id, item.unitType, val)
+                                  }
+                                  data={
+                                    isPakistan
+                                      ? [
+                                          { label: '🟢 Patta', value: 'strip' },
+                                          { label: '✂️ Goli', value: 'unit' },
+                                          { label: '📦 Dabba', value: 'box' },
+                                        ]
+                                      : [
+                                          { label: '🟢 Unit / Strip', value: 'strip' },
+                                          { label: '📦 Box / Pack', value: 'box' },
+                                        ]
+                                  }
+                                  color="teal"
+                                  styles={{
+                                    root: { background: '#f1f5f9' },
+                                    label: { fontSize: 11, padding: '3px 8px', fontWeight: 600 },
+                                  }}
+                                />
+                              ) : (
+                                <Badge size="sm" variant="light" color="cyan">
+                                  {itemPackLabel}
+                                </Badge>
+                              )}
                               <Text size="11px" c="#475569" fw={600}>
-                                @ {currency} {item.unitPrice.toFixed(2)} / {item.unitType === 'unit' ? (isPakistan ? 'goli' : 'tab') : item.unitType === 'box' ? (isPakistan ? 'dabba' : 'box') : (isPakistan ? 'patta' : 'unit')}
+                                @ {currency} {item.unitPrice.toFixed(2)} /{' '}
+                                {!isDivItem
+                                  ? itemPackLabel.toLowerCase()
+                                  : item.unitType === 'unit'
+                                  ? isPakistan
+                                    ? 'goli'
+                                    : 'tab'
+                                  : item.unitType === 'box'
+                                  ? isPakistan
+                                    ? 'dabba'
+                                    : 'box'
+                                  : isPakistan
+                                  ? 'patta'
+                                  : 'unit'}
                               </Text>
                             </Group>
 
