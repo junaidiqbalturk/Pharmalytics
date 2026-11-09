@@ -112,4 +112,49 @@ class MedicineController extends Controller
 
         return response()->noContent();
     }
+
+    #[HeaderParameter('X-Tenant-ID', 'Selected pharmacy workspace ID.', true, type: 'integer')]
+    public function downloadImportTemplate(\App\Modules\Catalog\Services\MedicineBulkImportService $importService): Response
+    {
+        $csv = $importService->generateTemplateCsv();
+
+        return response($csv, 200, [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="pharmalytics_inventory_template.csv"',
+        ]);
+    }
+
+    #[HeaderParameter('X-Tenant-ID', 'Selected pharmacy workspace ID.', true, type: 'integer')]
+    public function import(Request $request, \App\Modules\Catalog\Services\MedicineBulkImportService $importService): JsonResponse
+    {
+        /** @var Tenant $tenant */
+        $tenant = $request->attributes->get('tenant');
+        $user = $request->user();
+
+        $request->validate([
+            'file' => ['required', 'file', 'max:10240'], // 10MB max
+        ]);
+
+        $file = $request->file('file');
+        if (! $file || ! $file->isValid()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid file upload.',
+            ], 422);
+        }
+
+        $extension = strtolower($file->getClientOriginalExtension());
+        if (! in_array($extension, ['csv', 'txt'], true)) {
+            return response()->json([
+                'success' => false,
+                'message' => "Unsupported file type. Please upload a standard CSV file (.csv). Excel users can save as 'CSV (Comma delimited)' before uploading.",
+            ], 422);
+        }
+
+        $result = $importService->import($tenant, $file->getRealPath(), $user);
+
+        $status = $result['summary']['created_medicines'] > 0 || $result['summary']['updated_medicines'] > 0 ? 200 : 422;
+
+        return response()->json($result, $status);
+    }
 }
